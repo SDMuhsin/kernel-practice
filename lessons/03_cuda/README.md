@@ -1,0 +1,133 @@
+# Lesson 3 — CUDA
+
+Plain `.cu` files and `nvcc`. No notebooks.
+
+## Getting set up
+
+You need an NVIDIA GPU and an `nvcc` **new enough for it**. That second part
+catches people out: a toolkit older than the card compiles fine and then fails
+at load with an unhelpful message.
+
+```bash
+source env.sh
+bash scripts/doctor.sh      # says whether this machine can run the lesson
+```
+
+If `doctor.sh` reports that `nvcc` cannot target your GPU, the fix it suggests
+is `pip install 'cuda-toolkit[nvcc]'`, which installs a toolkit into the venv.
+`env.sh` then picks it over the system one.
+
+## Working
+
+```bash
+cd lessons/03_cuda
+make                   # list the exercises
+make 01                # build and run exercise 01
+make 01s               # the solution
+make fixture           # generate the capstone data (needed once, before 13)
+make clean
+```
+
+Open `NN_name/exercise.cu`, read the comment block at the top, fill in the
+`TODO`s, run it. The program checks itself.
+
+## The exercises
+
+| | | |
+|---|---|---|
+| 01 | `01_launch` | a kernel, a launch, both kinds of error |
+| 02 | `02_indexing` | thread mapping, grid-stride loops, lane and warp |
+| 03 | `03_warps` | divergence, shuffles, broadcast as a transpose |
+| 04 | `04_occupancy` | device query, registers against spill, sizing a grid |
+| 05 | `05_memory` | **measured**: coalescing, bank conflicts, shared memory |
+| 06 | `06_barriers` | the three `__syncthreads` rules, a block reduction |
+| 07 | `07_vecload` | `uint4`, `__ldcg`, and **measured** prefetch |
+| 08 | `08_numerics` | bf16, `rb()`, and rounding where the reference rounds |
+| 09 | `09_atomics` | `__threadfence` and the last-arriver pattern |
+| 10 | `10_softmax` | online softmax, and merging two states |
+| 11 | `11_coop` | cooperative launch, `grid.sync()`, **measured** cost |
+| 12 | `12_findbug` | three GEMVs, one correct |
+| 13 | `13_gemv` | **capstone 1**: a dequantizing GEMV in four stages |
+| 14 | `14_persistent` | **capstone 2**: five phases, four barriers, one launch |
+
+Eight to twelve hours. 01–06 in one sitting, 07–12 in another, and give each
+capstone its own.
+
+## What is measured, not asserted
+
+Four exercises run a benchmark and ask you to read it. Slow down on these: the
+numbers are the lesson, and they explain why the real kernel is shaped as it is.
+
+| | measurement | why it matters |
+|---|---|---|
+| 05 | coalesced vs stride-32 | same arithmetic, several times the runtime |
+| 05 | one float of padding | kills a 32-way bank conflict |
+| 07 | a `break` moved into the load-issue loop, swept over warps/SM | large at 1 warp, nothing by 8 — which is why low occupancy and issue-first loads are a **coupled** choice |
+| 11 | `grid.sync()` against a kernel launch | and why that is worth about 1%, not 10x |
+
+Your numbers will differ from mine. The checks only ever assert
+relationships, never absolute values.
+
+## The recall list
+
+A day later, then a week later. From memory.
+
+1. a `CUDA_CHECK` macro, and why you need `cudaGetLastError` **and** a sync
+2. `lane` and `warp` from `threadIdx.x`, with shifts
+3. a grid-stride loop, and a flat work-item id split by div and mod
+4. `warp_sum` and `warp_max` as butterflies, valid in every lane
+5. a block reduction with all three barriers
+6. a 16-byte `uint4` load viewed as 8 bf16, through `__ldcg`
+7. the issue/consume split: ternary in issue, `break` in consume
+8. `rb(v)`, and llama against gemma `norm_apply`
+9. the online-softmax chunk update, and the two-state merge
+10. the last arriver: add, fence, count, shuffle, exchange
+11. a cooperative grid, and the `void* args[]` launch
+12. `mat_elem`: one weight out of packed bytes
+13. the dequant algebra: `scale * (Σ code·x' − zero·Σ x')`
+
+## The traps
+
+Wrong answer, no error message.
+
+1. A `__shfl_*_sync` must be executed by **every lane of the mask**. Never
+   inside a ternary. The source lane may be divergent; the call may not.
+2. An out-of-range `__shfl_up/down_sync` returns **your own value**, silently.
+3. A butterfly leaves the result in every lane; a tree leaves it in lane 0.
+   Pair a tree with a per-lane emit and most rows are wrong.
+4. Publishing to a single-buffered shared array needs a barrier on **both**
+   sides, and a reusable buffer needs a trailing one.
+5. `__syncthreads()` inside divergent code, or in a loop whose trip count is
+   not block-uniform, is undefined. It may hang, or appear to work.
+6. A `break` in the load-**issue** loop collapses parallel latencies into a
+   chain. Clamp the index instead; a predicated-off load breaks it too.
+7. Round where the reference rounds. Keeping fp32 throughout is more accurate
+   and fails the agreement gate.
+8. The online-softmax correction applies to **both** `l` and `acc`, and you
+   normalise once, at the end.
+9. `-1e30f` as the masking sentinel, not `-INFINITY`.
+10. A cooperative launch above `blocks_per_sm * SM_count` **fails**. Size it
+    from an occupancy query, never a constant.
+11. `atomicAdd` on floats is not reproducible across runs. Use it for counters
+    and partials, never where bit-exactness is required.
+
+## Folklore to discard
+
+- **`-rdc=true` is not needed** for cooperative groups. Look at the compile
+  line the Makefile prints. (It was required in older CUDA versions, which is
+  why you will find older advice saying otherwise.)
+- **This kernel needs two names** from cooperative groups: `cg::this_grid()`
+  and `grid.sync()`. The API is much larger; you need two of it.
+- **`volatile` is not the tool** for cross-block communication.
+  `__threadfence` plus atomics is.
+- **Maximum occupancy is not the goal.** Exercise 04 measures the trade
+  yourself: fewer registers, more spill, more blocks.
+- **Coalescing is one cost among several.** Exercise 05 quotes the place where
+  the real kernel breaks the rule on purpose, with the measurement.
+- **A cheap barrier is not why a megakernel wins.** Exercise 11 quotes the
+  project's own note that barriers are about 1% and not the bottleneck.
+
+## Authoring
+
+`_src/*.cu` is the source of truth; `exercise.cu` and `solution.cu` are
+generated by `scripts/build.py`. Rebuilding overwrites them.

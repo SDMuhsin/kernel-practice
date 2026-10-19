@@ -1,0 +1,187 @@
+// ===========================================================================
+// 10. Online softmax
+//
+// Lesson 1 merged (m, l, o) states in PyTorch. Here it earns its keep: the
+// kernel splits the keys across warps AND across blocks, and never holds a
+// score row.
+//
+// The running state per output row is three things:
+//
+//   mx    the largest score seen so far
+//   l     sum of exp(s - mx) so far
+//   acc   the weighted value sum so far, one element per output dim
+//
+// Absorbing a chunk whose max is cm:
+//
+//   nm   = max(mx, cm)
+//   corr = exp(mx - nm)        how much the OLD state must shrink
+//   p    = exp(s - nm)         this chunk's weights, at the new scale
+//   l    = l * corr + sum(p)
+//   acc  = acc * corr + sum(p_j * V_j)
+//   mx   = nm
+//
+// Two details that are easy to get wrong:
+//   - BOTH l and acc get the correction. Not just one.
+//   - Normalise ONCE, at the very end. A per-chunk normalisation would have
+//     to be undone to merge.
+//
+// And the masking sentinel is -1e30f, not -INFINITY: exp(-inf - -inf) is
+// exp(nan), and nan propagates into l and acc and never leaves.
+//
+// Fill in each TODO, then:   make 10
+// ===========================================================================
+#include "check.cuh"
+#define FULL 0xffffffffu
+#define DH 32
+
+__device__ __forceinline__ float wmax(float v) {
+    #pragma unroll
+    for (int o = 16; o > 0; o >>= 1) v = fmaxf(v, __shfl_xor_sync(FULL, v, o));
+    return v;
+}
+__device__ __forceinline__ float wsum(float v) {
+    #pragma unroll
+    for (int o = 16; o > 0; o >>= 1) v += __shfl_xor_sync(FULL, v, o);
+    return v;
+}
+
+// One warp, keys 32 at a time, never materialising the score row.
+// Lane `lane` owns output dim `lane`.
+__global__ void attn(const float* K, const float* V, const float* q,
+                     float* out, int S) {
+    const int lane = threadIdx.x & 31;
+    float mx = -1e30f, l = 0.0f, acc = 0.0f;
+
+    for (int base = 0; base < S; base += 32) {
+        const int j = base + lane;              // this lane owns key j
+        float s = -1e30f;
+        if (j < S) {
+            s = 0.0f;
+            #pragma unroll
+            for (int d = 0; d < DH; ++d) s += q[d] * K[(size_t)j*DH + d];
+            s *= rsqrtf((float)DH);
+        }
+        const float cm = wmax(s);
+        const float nm = fmaxf(mx, cm);
+        const float corr = __expf(mx - nm);
+        const float p = __expf(s - nm);
+        l = l * corr + wsum(p);
+        acc *= corr;
+
+        // lane owns dim `lane`, p is held per key: broadcast is the transpose
+        for (int t = 0; t < 32; ++t) {
+            const float pv = __shfl_sync(FULL, p, t);
+            const int kj = base + t;
+            if (kj < S) acc = fmaf(pv, V[(size_t)kj*DH + lane], acc);
+        }
+        mx = nm;
+    }
+    out[lane] = acc / l;                        // ONE normalisation
+}
+
+// Two independent halves, merged. This is the cross-warp and cross-block
+// merge. Both states get a correction; that is the step people get wrong.
+__global__ void split_attn(const float* K, const float* V, const float* q,
+                           float* out, int S) {
+    const int lane = threadIdx.x & 31;
+    const int half = ((S / 2) + 31) & ~31;      // chunk-aligned split point
+    float ma = -1e30f, la = 0.0f, aa = 0.0f;
+    float mb = -1e30f, lb = 0.0f, ab = 0.0f;
+
+    for (int pass = 0; pass < 2; ++pass) {
+        const int k0 = pass ? half : 0, k1 = pass ? S : half;
+        float mx = -1e30f, l = 0.0f, acc = 0.0f;
+        for (int base = k0; base < k1; base += 32) {
+            const int j = base + lane;
+            float s = -1e30f;
+            if (j < k1) {
+                s = 0.0f;
+                #pragma unroll
+                for (int d = 0; d < DH; ++d) s += q[d] * K[(size_t)j*DH + d];
+                s *= rsqrtf((float)DH);
+            }
+            const float cm = wmax(s), nm = fmaxf(mx, cm);
+            const float corr = __expf(mx - nm), p = __expf(s - nm);
+            l = l * corr + wsum(p);
+            acc *= corr;
+            for (int t = 0; t < 32; ++t) {
+                const float pv = __shfl_sync(FULL, p, t);
+                const int kj = base + t;
+                if (kj < k1) acc = fmaf(pv, V[(size_t)kj*DH + lane], acc);
+            }
+            mx = nm;
+        }
+        if (pass == 0) { ma = mx; la = l; aa = acc; }
+        else           { mb = mx; lb = l; ab = acc; }
+    }
+
+    const float nm = fmaxf(ma, mb);
+    const float ca = __expf(ma - nm), cb = __expf(mb - nm);
+    const float l = la * ca + lb * cb;
+    const float acc = aa * ca + ab * cb;
+    out[lane] = acc / l;
+}
+
+int main() {
+    const int S = 200;
+    float *hK = (float*)malloc((size_t)S*DH*4), *hV = (float*)malloc((size_t)S*DH*4);
+    float hq[DH];
+    for (int d = 0; d < DH; ++d) hq[d] = (float)((d % 5) - 2) * 0.5f;
+    for (int j = 0; j < S; ++j)
+        for (int d = 0; d < DH; ++d) {
+            hK[(size_t)j*DH+d] = (float)((j*3 + d) % 11) - 5.0f;
+            hV[(size_t)j*DH+d] = (float)((j + 2*d) % 7) - 3.0f;
+        }
+
+    // host reference: the full softmax, in double
+    double* sc = (double*)malloc(S*8); double mx = -1e300;
+    for (int j = 0; j < S; ++j) {
+        double s = 0.0;
+        for (int d = 0; d < DH; ++d) s += (double)hq[d] * hK[(size_t)j*DH+d];
+        sc[j] = s / sqrt((double)DH);
+        if (sc[j] > mx) mx = sc[j];
+    }
+    double l = 0.0; for (int j = 0; j < S; ++j) l += exp(sc[j] - mx);
+    double ref[DH];
+    for (int d = 0; d < DH; ++d) {
+        double a = 0.0;
+        for (int j = 0; j < S; ++j) a += exp(sc[j] - mx) * hV[(size_t)j*DH+d];
+        ref[d] = a / l;
+    }
+
+    float *dK,*dV,*dq,*dout;
+    CUDA_CHECK(cudaMalloc(&dK,(size_t)S*DH*4)); CUDA_CHECK(cudaMalloc(&dV,(size_t)S*DH*4));
+    CUDA_CHECK(cudaMalloc(&dq,DH*4)); CUDA_CHECK(cudaMalloc(&dout,DH*4));
+    CUDA_CHECK(cudaMemcpy(dK,hK,(size_t)S*DH*4,cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(dV,hV,(size_t)S*DH*4,cudaMemcpyHostToDevice));
+    CUDA_CHECK(cudaMemcpy(dq,hq,DH*4,cudaMemcpyHostToDevice));
+
+    attn<<<1,32>>>(dK,dV,dq,dout,S);
+    SYNC();
+    float o[DH]; CUDA_CHECK(cudaMemcpy(o,dout,DH*4,cudaMemcpyDeviceToHost));
+    double e1 = 0.0;
+    for (int d = 0; d < DH; ++d) e1 = fmax(e1, fabs(o[d] - ref[d]));
+    printf("\n  %d keys in chunks of 32, score row never held\n", S);
+    printf("  max error vs the full softmax: %.2e\n\n", e1);
+    CHECK_TRUE("the chunked softmax is correct", e1 < 1e-4);
+
+    split_attn<<<1,32>>>(dK,dV,dq,dout,S);
+    SYNC();
+    CUDA_CHECK(cudaMemcpy(o,dout,DH*4,cudaMemcpyDeviceToHost));
+    double e2 = 0.0;
+    for (int d = 0; d < DH; ++d) e2 = fmax(e2, fabs(o[d] - ref[d]));
+    printf("  two independent halves, merged: %.2e\n\n", e2);
+    CHECK_TRUE("the merge is correct", e2 < 1e-4);
+
+    // The split point is rounded UP to a multiple of 32 on purpose. The real
+    // runner has the same constraint, and says why:
+    //
+    //   MUST depend only on the context length - NOT on M and NOT on the grid
+    //   size - or the online-softmax combine order changes with the batch
+    //   size and a sequence decoded at M=4 stops being bit-identical to M=1.
+    //
+    // Floating-point addition is not associative, so the merge ORDER is part
+    // of the answer. If the split depended on the grid, the same prompt would
+    // give different logits on a different GPU.
+    return REPORT();
+}

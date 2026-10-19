@@ -1,97 +1,95 @@
-# kata
+# kernel-practice
 
-A hands-on curriculum that builds up to writing a CUDA **megakernel** for
+A hands-on curriculum that builds toward writing a CUDA **megakernel** for
 4-bit, 50%-sparse BioMistral-7B inference — one decode step in a single
-cooperative kernel launch — from scratch, understanding every line.
+cooperative launch — from scratch, understanding every line.
 
-Not a tutorial you read. Every concept gets a few lines of rule, a runnable
-example whose output *is* the lesson, and then drills you fill in. Every drill
-self-checks and explains what went wrong before it fails.
+Not a tutorial you read. Every topic is a few lines of rule, a runnable
+example whose output *is* the lesson, then exercises you fill in. Every
+exercise checks itself and says what went wrong before it fails.
 
-## Quickstart
-
-```bash
-git clone <this repo> kata && cd kata
-bash scripts/setup.sh          # venv + torch + notebook stack  (~5 min, ~3 GiB)
-source env.sh                  # every new shell
-bash scripts/doctor.sh         # confirms what works and what each lesson needs
-bash scripts/lab.sh            # JupyterLab -> pick the "Python (kata)" kernel
-```
-
-Then open `lessons/01_pytorch_foundations/notebooks/01_tensor_mechanics.ipynb`.
-
-`env.sh` expects a virtualenv at **`<repo>/env`** and finds the repo from its
-own path, so nothing is tied to a particular machine. If you want the venv on a
-different filesystem — a scratch disk, or anywhere with more room than a quota'd
-home — make `env` a symlink before running setup:
+## Start here
 
 ```bash
-ln -s /big/disk/kata-env env && bash scripts/setup.sh
+bash scripts/setup.sh      # once
+source env.sh              # every shell
+bash scripts/doctor.sh     # what works here, and the fix for what does not
 ```
 
-Lesson 2 compiles real C++ and CUDA. Those binaries and its generated test
-fixtures are scratch, so they go **outside** the repo — `$TMPDIR/kata-build` by
-default. Set `$KATA_BUILD` to put them elsewhere.
+Then `SETUP.md` if anything is missing, and `lessons/01_pytorch/README.md`.
 
-## What you need
+## The lessons
 
-| lesson | needs |
-|---|---|
-| 1 — PyTorch foundations | Python ≥ 3.9 and CPU torch. **No GPU.** |
-| 2 — C++ and CUDA fundamentals, notebook 01 | a C++17 compiler (`g++` or `clang++`). **No GPU.** |
-| 2 — notebooks 02–04 | an NVIDIA GPU, and an `nvcc` new enough for it |
-| 3+ | the same GPU |
+| | subject | medium | needs |
+|---|---|---|---|
+| **01** | **PyTorch** — shapes, strides, broadcasting, blank dimensions, GQA, RoPE, masking, the KV cache, bit-level weight unpacking, bf16. Ends by building a full decode step and a prefill cross-check. | 14 notebooks | Python. **No GPU.** |
+| **02** | **C++** — pointers, raw memory, flat indexing, bits, PODs, headers, templates as compile-time constants, float bit layout. | 11 `.cpp` files | a C++17 compiler |
+| **03** | **CUDA** — launches, warps, occupancy, coalescing, barriers, wide loads, prefetch, bf16 rounding, atomics, online softmax, cooperative launch. Ends with a 4-bit dequantizing GEMV and a five-phase persistent kernel. | 14 `.cu` files | a GPU |
+| 04+ | binding to PyTorch, attention as a kernel, then the full megakernel. | planned | |
 
-`scripts/doctor.sh` checks all of it and prints the fix for anything missing.
-The common CUDA failure is an `nvcc` **older than the GPU** — it compiles and
-then fails at load; doctor detects that specifically and tells you to
-`pip install 'cuda-toolkit[nvcc]'`.
+Each lesson has its own `README.md` with the order of work, a recall list, and
+the traps that give a wrong answer with no error message.
 
-No GPU at all? Lesson 1 is the whole of the PyTorch material and needs nothing,
-and lesson 2's C++ notebook needs only a compiler.
+**No GPU?** Lessons 1 and 2 are most of the curriculum and need none.
 
-## Lessons
+## How the exercises work
 
-| # | subject | notebooks |
-|---|---|---|
-| 1 | **PyTorch foundations** — shapes, strides, broadcasting, GQA, RoPE, KV cache, bit-level weight unpacking, bf16 comparison. Ends by building a complete BioMistral decode step and a prefill cross-check in plain PyTorch. | 2 + solutions |
-| 2 | **C++ and CUDA fundamentals** — pointers and raw memory, bit manipulation, templates; then threads, warps, shared memory, coalescing, reductions, the prefetch idiom, online softmax and cooperative launch. Ends by building a 4-bit dequantizing GEMV and a persistent 5-phase kernel, checked against PyTorch. | 4 + solutions |
-| 3+ | binding to PyTorch, then attention as a kernel, then fusing the megakernel. | planned |
-
-## How a lesson is laid out
-
-```
-lessons/01_pytorch_foundations/
-  README.md        what it covers, how long, and the recall list
-  _src/*.py        THE SOURCE OF TRUTH — percent-format Python
-  notebooks/       generated: your copy, with the blanks
-  solutions/       generated: every blank filled
-```
-
-The source of truth is `_src/*.py`, not the notebooks. One source file builds
-**both** the exercise notebook and its solutions, from `@sol`/`@ex` blocks, so
-the two cannot drift apart.
+**Notebooks**, for tensor work, where you want to poke at a value:
 
 ```bash
-python scripts/build_notebooks.py      # _src/*.py -> notebooks/ and solutions/
-python scripts/verify_notebooks.py     # execute every solution notebook; the regression test
+bash scripts/lab.sh        # JupyterLab, then pick the "Python (kata)" kernel
 ```
 
-If you are *working through* the lessons, you only ever touch `notebooks/`.
-Rebuilding **overwrites** them, so rebuild before you start a notebook, never
-after you have typed answers into it.
+Open `lessons/01_pytorch/notebooks/1a_shapes.ipynb` and work through to `1n`.
 
-From lesson 2 on, exercises are **real C++ and CUDA source** held in a Python
-string: the notebook writes it to a file, compiles it with a real compiler, runs
-it, and checks its output. The compile command is printed so you learn it. A
-lesson's notebooks share one compile harness through `# @include _harness.py`.
+**Plain files**, for anything you compile. No notebooks, no magic:
+
+```bash
+cd lessons/02_cpp
+make                       # list the exercises
+make 01                    # build and run exercise 01
+make 01s                   # the solution
+```
+
+Open the `.cpp` or `.cu`, read the comment block at the top — that is the
+lesson for that file, and it is short — fill in the `TODO`s, and run it.
 
 ## Working through it
 
-- Predict before you run. A shape-prediction cell you guess and get wrong
-  teaches more than one you execute first.
+- Predict before you run. Guessing a shape wrong and then being told teaches
+  more than executing it first.
 - Do not fix a failing check by changing the check.
-- Read a solution only after your own attempt has failed.
-- Come back to each lesson's recall list a day later and write it from memory.
+- Read a solution after your own attempt has failed, then close it and retype
+  the answer from memory.
+- Come back to each lesson's recall list a day later, and again a week later.
   The goal is writing a kernel with no autocomplete; that needs retrieval, and
   retrieval needs spacing.
+
+## Layout
+
+```
+lessons/01_pytorch/
+  _src/            SOURCE OF TRUTH: percent-format Python
+  notebooks/       generated, with the blanks
+  solutions/       generated, filled in
+
+lessons/02_cpp/  (and 03_cuda/)
+  Makefile
+  include/check.h  the self-check macros. Sixty lines; read them.
+  _src/            SOURCE OF TRUTH
+  NN_topic/        generated: exercise.cpp and solution.cpp
+```
+
+One source file generates both the exercise and the solution, from `@sol`/`@ex`
+blocks, so the two cannot drift apart.
+
+```bash
+python scripts/build.py    # _src/ -> the learner-facing files
+python scripts/verify.py   # run every solution. the regression test.
+```
+
+If you are **working through** the lessons you only touch the generated files.
+Rebuilding **overwrites** them, so rebuild before you start, never after.
+
+Writing a new lesson? `lessons/_template/README.md` records the rules,
+including the presentation ones.
