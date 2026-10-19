@@ -1,0 +1,16 @@
+# The venv lives at <repo>/env -- make it a symlink if you want it elsewhere.
+/env
+# Compiled binaries and generated test fixtures from lesson 2.
+# (build artifacts live outside the repo now; see env.sh)
+/build
+# Older layout: a work dir chosen by env.sh.
+/.kata/
+/output
+# Agent-facing notes: regenerable, deliberately untracked.
+llmdocs/
+__pycache__/
+.ipynb_checkpoints/
+*.pyc
+*.o
+*.so
+a.out

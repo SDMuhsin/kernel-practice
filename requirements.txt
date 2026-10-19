@@ -1,0 +1,9 @@
+# torch is installed separately from the cu130 index (see scripts/setup_scratch.sh)
+numpy
+einops
+jupyterlab
+notebook
+ipykernel
+nbformat
+nbclient
+matplotlib
