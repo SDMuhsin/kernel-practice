@@ -159,22 +159,37 @@ int main() {
     attn<<<1,32>>>(dK,dV,dq,dout,S);
     SYNC();
     float o[DH]; CUDA_CHECK(cudaMemcpy(o,dout,DH*4,cudaMemcpyDeviceToHost));
-    double e1 = 0.0;
-    for (int d = 0; d < DH; ++d) e1 = fmax(e1, fabs(o[d] - ref[d]));
+    // Count the bad dims instead of taking a max error. fmax(x, NaN) returns
+    // x, so an all-NaN output would otherwise measure zero error and pass.
+    int bad1 = 0; double e1 = 0.0;
+    for (int d = 0; d < DH; ++d) {
+        const double gap = fabs((double)o[d] - ref[d]);
+        if (!(gap < 1e-4)) ++bad1;                  // false for NaN, as wanted
+        if (gap > e1) e1 = gap;
+    }
     printf("\n  %d keys in chunks of 32, score row never held\n", S);
-    printf("  max error vs the full softmax: %.2e\n\n", e1);
-    CHECK_TRUE("the chunked softmax is correct", e1 < 1e-4);
+    printf("  dims wrong: %d of %d, largest gap %.2e\n\n", bad1, DH, e1);
+    CHECK_EQ("every output dim is finite and correct", (long long)bad1, 0);
 
     split_attn<<<1,32>>>(dK,dV,dq,dout,S);
     SYNC();
     CUDA_CHECK(cudaMemcpy(o,dout,DH*4,cudaMemcpyDeviceToHost));
-    double e2 = 0.0;
-    for (int d = 0; d < DH; ++d) e2 = fmax(e2, fabs(o[d] - ref[d]));
-    printf("  two independent halves, merged: %.2e\n\n", e2);
-    CHECK_TRUE("the merge is correct", e2 < 1e-4);
+    int bad2 = 0; double e2 = 0.0;
+    for (int d = 0; d < DH; ++d) {
+        const double gap = fabs((double)o[d] - ref[d]);
+        if (!(gap < 1e-4)) ++bad2;
+        if (gap > e2) e2 = gap;
+    }
+    printf("  two halves merged: %d of %d dims wrong, largest gap %.2e\n\n",
+           bad2, DH, e2);
+    CHECK_EQ("the merge is correct", (long long)bad2, 0);
 
-    // The split point is rounded UP to a multiple of 32 on purpose. The real
-    // runner has the same constraint, and says why:
+    // The split point is rounded UP to a multiple of 32 so each half is a
+    // whole number of 32-key chunks. That is this exercise's own arrangement.
+    //
+    // The real runner's constraint is related but different: its split can be
+    // any count, and what it forbids is depending on anything but the context
+    // length. Its note says why:
     //
     //   MUST depend only on the context length - NOT on M and NOT on the grid
     //   size - or the online-softmax combine order changes with the batch

@@ -1,89 +1,114 @@
-# Lesson 1 — PyTorch foundations
+# Lesson 1 — PyTorch
 
-Everything you need to write a **reference implementation** of one
-BioMistral-7B decode step. That reference is what every CUDA kernel you write
-later gets judged against, so it is the first real artifact of the project, not
-a warm-up.
+Everything needed to write a **reference implementation** of one BioMistral-7B
+decode step. Lesson 3's CUDA kernels are checked against that reference, so it
+is the first real artifact here.
 
-## Order of work
-
-| | file | what it is | rough time |
-|---|---|---|---|
-| 1 | `notebooks/01_tensor_mechanics.ipynb` | 16 sections, 32 drills, 7 shape-prediction cells, a find-the-bug section and a closed-book retrieval pass | 2–4 h |
-| 2 | `notebooks/02_exam.ipynb` | 18 problems, then a 9-part capstone: a full decode step, greedy generation, a prefill cross-check and a bf16 rerun | 3–5 h |
-| — | `solutions/` | the same notebooks with every blank filled | — |
-
-CPU only. Every cell runs in under a second. No model weights needed.
+CPU only. No GPU, no model weights. Every cell runs in under a second.
 
 ```bash
 source env.sh && bash scripts/lab.sh
 ```
 
-Pick the **Python (kata)** kernel.
+Pick the **Python (kata)** kernel, then open `notebooks/1a_shapes.ipynb` and
+work through to `1n`.
 
-## How to actually learn this
+## Order of work
 
-- **Predict before you run.** Especially in exam problem 1. Being wrong and then
-  told is how the shape intuition forms; running it first teaches nothing.
-- **Type `S(t)` constantly.** `S` is defined in the first cell of both notebooks
-  and returns the shape as a tuple. Looking at a shape before using a tensor is
-  most of the skill.
-- **The solutions are the last resort, not the second.** When you stall, go back
-  to the teaching notebook. When you look at a solution, close it and retype the
-  answer from memory rather than pasting.
-- **Do not fix a failing check by changing the check.** It is telling you
-  something.
-- **If the capstone's part A stalls you**, run its A4 unblock cell and carry on
-  to B–I. The parts after A are where the interesting checks live; do not spend
-  an hour on A and miss them.
+Fourteen notebooks, one topic each. Do them in order; each ends by naming the
+next.
+
+| | | | |
+|---|---|---|---|
+| `1a` | shapes | shape, rank, dtype, and rank-0 versus length-1 | 20 min |
+| `1b` | indexing | slicing, ellipsis, step slices, views | 20 min |
+| `1c` | reshape | `reshape` vs `view` vs `transpose`, contiguity | 25 min |
+| `1d` | strides | strides, flat↔multi index, tiling. The bridge to CUDA. | 25 min |
+| `1e` | blank dims | singleton axes, `expand`/`repeat`/`repeat_interleave`, GQA | 30 min |
+| `1f` | broadcasting | the rule, and the case that silently does the wrong thing | 20 min |
+| `1g` | reductions | `dim`, `keepdim`, then RMSNorm | 25 min |
+| `1h` | matmul | `@`, `F.linear`'s layout, the fused qkv | 20 min |
+| `1i` | softmax | masking, stable softmax, merging two halves | 25 min |
+| `1j` | bits | shifts and masks, then reading a 4-bit weight file | 30 min |
+| `1k` | cache | `cat`/`stack`/`split`, a preallocated sliding-window KV cache | 20 min |
+| `1l` | bf16 | why two correct implementations disagree, and find-the-bug | 25 min |
+| `1m` | exam | 15 problems. No teaching, no new material. | 2–3 h |
+| `1n` | capstone | one decode step, in nine checked parts | 2–3 h |
+
+About nine hours in total. `1a`–`1f` is a comfortable first sitting.
+
+`solutions/` holds the same notebooks with every blank filled.
+
+## How to work
+
+- **Predict before you run.** Several notebooks end with a cell asking for
+  shapes as tuples. Guess, then check.
+- **Type `S(t)` constantly.** It returns the shape as a tuple. Looking at a
+  shape before using a tensor is most of the skill.
+- **When you stall, go back a notebook** before you open a solution.
+- **Do not fix a failing check by changing the check.**
+- **If part A–C of `1n` blocks you**, run its part **D**, which supplies
+  reference versions, and carry on to E–I. The later parts hold the more
+  interesting checks.
 
 ## The recall list
 
-The stated goal is writing the kernel *without* autocomplete. That needs recall,
-not recognition — and recall needs **spacing**, not more content. Notebook 1 §16
-is a closed-book pass over six of these. Come back to the full list a day after
-finishing the lesson, and again a week later: open a blank cell and write each
-one from memory, no notebook open.
+A day after finishing, and again a week later: open a blank cell and write each
+of these from memory, with nothing else open.
 
 1. split `(B, T, H*DH)` into `(B, H, T, DH)`, and invert it
 2. expand 8 kv heads to 32 query heads so kv head `j` serves `4j..4j+3`
 3. RMSNorm, llama convention, with the cast in the right place
-4. the RoPE tables for a list of positions, NeoX convention
-5. `rotate_half` and `apply_rope` for a `(B, H, T, DH)` tensor
-6. a causal + sliding-window mask from `q_pos` and `kv_pos`
-7. a masked softmax that accumulates in fp32 and returns bf16
+4. the RoPE tables for a list of positions
+5. `rotate_half` and `apply_rope` for `(B, H, T, DH)`
+6. a causal plus sliding-window mask from `q_pos` and `kv_pos`
+7. a masked softmax accumulating in fp32, returning bf16
 8. the streaming-softmax merge of two `(m, l, o)` states
-9. unpack `N/8` LSB-first mask bytes into `N` booleans, no loop
-10. scatter survivor codes into a dense matrix in row-major order
-11. the group-wise dequant affine with `(K, N/128)` scales
-12. write one position into a preallocated KV cache and read the live window
-13. SwiGLU, with `silu` on the right one of gate/up
+9. unpack `N/8` mask bytes into `N` booleans, no loop
+10. scatter survivor codes into a dense matrix
+11. the group-wise dequant affine
+12. write one position into a preallocated cache and read the live window
+13. SwiGLU, with `silu` on the right one of gate and up
 14. `max_abs` and `argmax_agree` between two logit tensors
 15. the flat offset of `t[i, j, k]` from `t.stride()`, and the inverse
-16. a tiled matvec: row groups of `R`, column tiles of `C`, accumulating
+16. a tiled matvec: row groups of `R`, column tiles of `C`
 
-If you can type all sixteen cold, you are ready for lesson 2.
+If you can type all sixteen cold, go on to lesson 2.
 
-## The nine traps
+## The traps
 
-These are the ones that produce a *wrong answer with no error message*. They
-recur in every later lesson.
+These produce a **wrong answer with no error message**. They recur in every
+later lesson.
 
-1. `K` in CoBALT's format means **output rows**, `N` means **input columns** —
-   the opposite of the usual GEMM naming.
-2. GQA expansion is **block repeat** (`expand`+`reshape` or
-   `repeat_interleave`), never `repeat`/`tile`.
+1. k and v are a quarter of q's width. BioMistral has 32 query heads and 8
+   key/value heads, so `HKV*DH` is not `H*DH`.
+2. GQA expansion is a **block** repeat — `expand` then `reshape`, or
+   `repeat_interleave`. Never `repeat`.
 3. Mistral's `post_attention_layernorm` is the **pre-MLP** norm.
 4. `qkv` is row-**concatenated**; `gateup` is row-**interleaved**.
-5. `col_scale` is per **input column**, and is folded into the activation rather
-   than the weight.
-6. Pruned weights must dequantize to **exactly 0.0** — apply `keep` last.
-7. A transposed attention mask is **invisible at decode** (`T=1`) and only
+5. The per-input-column scale is folded into the **activation**, not the
+   weight, so a fused matrix needs one column-scaled copy of the input per
+   constituent.
+6. Pruned weights must dequantize to **exactly 0.0**. Apply the keep mask last.
+7. A transposed attention mask is **invisible at decode** (`T == 1`) and only
    breaks in prefill.
-8. Promote to `int64` **before** shifting bytes into a word.
-9. The bar is **98.5% argmax agreement**, not bit-equality.
+8. Promote to a wider integer **before** shifting bytes into a word.
+9. Omitting `keepdim` is silent on a square tensor and an error on a
+   rectangular one.
+10. An `expand`ed view is writable and **aliased**: writing one element writes
+    every position along the stride-0 axis.
+11. The bar is **98.5% argmax agreement**, never bit-equality.
+
+## A note on names
+
+Two names from the real project appear in `1j`. **CoBALT** is the weight format
+and the kernel this curriculum builds toward. **`blk1632_b4`** is one of its
+layouts: 4-bit codes, 16 survivors per aligned 32-column block. You do not need
+either name to do the exercises; they are here so the vocabulary is familiar
+when you meet the real thing.
 
 ## Authoring
 
-`_src/*.py` is the source of truth; the notebooks are generated from it. See the
-repo `README.md` and `llmdocs/CONTEXT.md`.
+`_src/*.py` is the source of truth; the notebooks are generated from it by
+`scripts/build.py`, which **overwrites** them. Rebuild before you start work on
+a notebook, never after.

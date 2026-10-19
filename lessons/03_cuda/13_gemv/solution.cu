@@ -266,8 +266,11 @@ int main() {
     CHECK_EQ("PF=4 is bit-identical to PF=1",
              (long long)report_err("PF4 vs PF1", h4, h2, m.K, 0.0), 0);
 
-    printf("\n  per row: naive %d multiplies, algebra %d + %d group fixups\n",
-           m.N * 3, m.N, m.N / m.G * 3);
+    // Counting the code as written: naive does 3 float ops per weight; part C
+    // still does 2 (the x' multiply plus the FMA) plus 2 per group. It becomes
+    // 1 per weight only once x' is hoisted, which is part E's job.
+    printf("\n  per row: naive %d ops, part C %d + %d per-group\n",
+           m.N * 3, m.N * 2, (m.N / m.G) * 2);
     printf("  uint4 loads per row: %d (one per 32-column granule)\n\n", m.N >> 5);
 
     // ---- E, every supported R ---------------------------------------------

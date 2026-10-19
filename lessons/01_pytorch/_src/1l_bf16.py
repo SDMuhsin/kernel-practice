@@ -16,11 +16,14 @@
 # about two decimal digits.
 
 # %%
-print(torch.finfo(torch.bfloat16))
+f = torch.finfo(torch.bfloat16)
+print(f)
+print("eps =", f.eps, "= 2 ** -7, so 7 mantissa bits are stored")
 
 # %% [markdown]
-# `mant_dig` says 8 because it counts the implicit leading bit. Seven are
-# stored.
+# Read it off `eps`: the smallest step above 1.0 is `2**-7`, so seven mantissa
+# bits are stored. (Some libraries report 8, counting the implicit leading
+# bit; `torch.finfo` does not report it at all.)
 
 # %%
 for v in [1.0, 1.0 + 1/256, 1.0 + 1/128, 300.0, 300.5]:
@@ -52,8 +55,11 @@ print(f"forward {float(fwd):.5f}   reverse {float(rev):.5f}   fp32 {float(t.floa
 #    packed bytes.
 # 2. **identical greedy tokens and max |Δlogit| ≤ 0.5** on the tensor-core
 #    build. Measured 0.09–0.14.
-# 3. **batch 4 bit-exact against four batch-1 runs**, which catches any
-#    reduction whose order depends on batch size.
+# 3. **batch 4 against four batch-1 runs**, which catches any reduction whose
+#    order depends on batch size. On the row-loop build that gate is literal
+#    bit-exactness; on the tensor-core build BioMistral actually uses, the
+#    fp32 slice sums make token order non-deterministic, so there it is the
+#    same "identical tokens, max |Δlogit| ≤ 0.5" bar as gate 2.
 #
 # Where does 98.5% come from? HuggingFace's own eager and sdpa attention agree
 # on only 98.61% of prefill positions for `gemma-3-4b`. That is the floor two

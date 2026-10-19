@@ -24,7 +24,7 @@ Then `SETUP.md` if anything is missing, and `lessons/01_pytorch/README.md`.
 |---|---|---|---|
 | **01** | **PyTorch** — shapes, strides, broadcasting, blank dimensions, GQA, RoPE, masking, the KV cache, bit-level weight unpacking, bf16. Ends by building a full decode step and a prefill cross-check. | 14 notebooks | Python. **No GPU.** |
 | **02** | **C++** — pointers, raw memory, flat indexing, bits, PODs, headers, templates as compile-time constants, float bit layout. | 11 `.cpp` files | a C++17 compiler |
-| **03** | **CUDA** — launches, warps, occupancy, coalescing, barriers, wide loads, prefetch, bf16 rounding, atomics, online softmax, cooperative launch. Ends with a 4-bit dequantizing GEMV and a five-phase persistent kernel. | 14 `.cu` files | a GPU |
+| **03** | **CUDA** — launches, warps, occupancy, coalescing, barriers, wide loads, prefetch, bf16 rounding, atomics, online softmax, cooperative launch. Ends with a 4-bit dequantizing GEMV and a five-phase persistent kernel. | 14 `.cu` files | a GPU (and, for the last two, lesson 1's venv) |
 | 04+ | binding to PyTorch, attention as a kernel, then the full megakernel. | planned | |
 
 Each lesson has its own `README.md` with the order of work, a recall list, and
@@ -88,8 +88,12 @@ python scripts/build.py    # _src/ -> the learner-facing files
 python scripts/verify.py   # run every solution. the regression test.
 ```
 
-If you are **working through** the lessons you only touch the generated files.
-Rebuilding **overwrites** them, so rebuild before you start, never after.
+The generated files are checked in, so a fresh clone needs no build step. If
+you are **working through** the lessons you only touch them, and never need
+`build.py` at all.
+
+If you are **authoring**, `build.py` **overwrites** the generated files. Run it
+before you start on a notebook, never after you have typed answers into it.
 
 Writing a new lesson? `lessons/_template/README.md` records the rules,
 including the presentation ones.

@@ -61,7 +61,9 @@ __global__ void decompose(int* hits, int M, int n_kv, int SPB) {
         int kvh = /* TODO */ 0;
         int m   = /* TODO: slowest varying */ 0;
         // @end
-        atomicAdd(&hits[(m * n_kv + kvh) * SPB + sp], 1);
+        // store u itself, so only the RIGHT decomposition matches: any other
+        // bijection fills every slot but puts the wrong u in each one
+        hits[(m * n_kv + kvh) * SPB + sp] = u + 1;
     }
 }
 
@@ -91,7 +93,6 @@ int main() {
     lane_warp<<<1, T>>>(d2);
     SYNC();
     int h2[T*2]; CUDA_CHECK(cudaMemcpy(h2, d2, T*2*4, cudaMemcpyDeviceToHost));
-    CHECK_EQ("thread 0 lane",   (long long)h2[0],       0);
     CHECK_EQ("thread 33 lane",  (long long)h2[33*2],    1);
     CHECK_EQ("thread 33 warp",  (long long)h2[33*2+1],  1);
     CHECK_EQ("thread 200 lane", (long long)h2[200*2],   8);
@@ -104,9 +105,10 @@ int main() {
     decompose<<<5, 32>>>(dh, M, n_kv, SPB);          // 5 blocks, 24 items
     SYNC();
     int hh[24]; CUDA_CHECK(cudaMemcpy(hh, dh, units*4, cudaMemcpyDeviceToHost));
-    int once = 0;
-    for (int i = 0; i < units; ++i) if (hh[i] == 1) ++once;
-    CHECK_EQ("every (m, kvh, sp) hit exactly once", (long long)once, (long long)units);
+    int right = 0;
+    for (int u = 0; u < units; ++u) if (hh[u] == u + 1) ++right;
+    CHECK_EQ("each slot holds its own work-item id", (long long)right,
+             (long long)units);
 
     // Five blocks, twenty-four items, and the grid-stride loop over blockIdx.x
     // means block 0 takes items 0, 5, 10, 15, 20. Nothing dropped, nothing

@@ -34,7 +34,11 @@ struct MatDesc {
 };
 // @ex
 struct MatDesc {
-    /* TODO: four pointers, then three int64_t, in an order with no padding */
+    // TODO: four pointers (const uint8_t*, const uint16_t*, const uint8_t*,
+    // const uint16_t*) then three int64_t, in an order with no padding.
+    // The int64_t fields are here so the rest of this file still compiles;
+    // add the pointers.
+    int64_t K, N, G;
 };
 // @end
 

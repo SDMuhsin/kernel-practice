@@ -6,7 +6,7 @@
 # Go back to **1a–1l** when you are stuck. That is what they are for. The
 # solutions are the last resort.
 #
-# About an hour.
+# Two to three hours. Fifteen problems, and some of them are whole functions.
 
 # %%
 # @include _setup.py
@@ -198,9 +198,19 @@ check("fp32", rms_norm(xx, ww),
 check("bf16 stays bf16", rms_norm(xx.bfloat16(), ww.bfloat16()),
       dtype=torch.bfloat16, shape=(2, 3, D))
 check("eps is inside", rms_norm(torch.zeros(1, D), torch.ones(D)), want=torch.zeros(1, D))
-assert torch.isfinite(rms_norm(torch.full((1, D), 1e20), torch.ones(D))).all(), \
-    "a huge input overflowed: you squared in the input dtype"
-print("ok    survives a huge input")
+# fp16 input: 300 squared overflows fp16 but not fp32, so this separates an
+# implementation that upcasts from one that does not.
+check("squares in fp32, not the input dtype",
+      rms_norm(torch.full((1, D), 300.0, dtype=torch.float16),
+               torch.ones(D, dtype=torch.float16)),
+      want=torch.ones(1, D, dtype=torch.float16))
+# and the cast back must precede the weight multiply
+_xb = (torch.randn(1, D, generator=torch.Generator().manual_seed(0)) * 3).bfloat16()
+_wb = (torch.rand(D, generator=torch.Generator().manual_seed(1)) + 0.5).bfloat16()
+_rr = torch.rsqrt(_xb.float().pow(2).mean(-1, keepdim=True) + 1e-5)
+check("rounds before the weight multiply", rms_norm(_xb, _wb).float(),
+      want=(_wb * (_xb.float() * _rr).bfloat16()).float(),
+      atol=0.0, rtol=0.0)
 
 # %% [markdown]
 # ## 8. RoPE tables
@@ -283,6 +293,11 @@ rq, half = apply_rope(xq, cos, sin), DH // 2
 check("each (i, i+dh/2) pair keeps its length",
       rq[..., :half].pow(2) + rq[..., half:].pow(2),
       want=xq[..., :half].pow(2) + xq[..., half:].pow(2), atol=1e-4)
+# The length check is blind to the direction of rotation, so pin one element
+# at a non-zero position against the formula written out.
+check("rotates the right way at position 2",
+      rq[0, 0, 2, 0],
+      want=xq[0, 0, 2, 0] * cos[2, 0] - xq[0, 0, 2, half] * sin[2, 0])
 
 # %% [markdown]
 # RoPE rotates the pair `(x[i], x[i+dh/2])` in a plane, so that pair's length
@@ -489,6 +504,17 @@ check("max_abs", torch.tensor(report(near, ref)["max_abs"]),
 check("verdict passes a near match", verdict(near, ref), want=True)
 check("verdict fails a bad one", verdict(far, ref), want=False)
 check("identical tensors pass", verdict(ref, ref), want=True)
+
+# Each gate has to be able to fail on its own, so here is a case that trips
+# only the argmax gate and one that trips only the magnitude gate.
+tied = ref.clone()
+tied[:, 0] = tied[:, 1]                       # near-ties, tiny max_abs
+tied[:500, 0] += 1e-6                         # flips argmax on half the rows
+check("a tiny perturbation that flips argmax fails", verdict(tied, ref), want=False)
+shifted = ref + 0.9                           # argmax unchanged, max_abs large
+check("a large uniform shift fails", verdict(shifted, ref), want=False)
+check("argmax is unchanged by a uniform shift",
+      torch.tensor(report(shifted, ref)["argmax_agree"]), want=1.0)
 
 # %% [markdown]
 # ## 14. Two fusion layouts

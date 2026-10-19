@@ -27,8 +27,13 @@
 //
 // Step 2 is the one people omit. Without it the counter increment can become
 // visible before the partial it counts, and the last arriver reads a value
-// that is not there yet. Step 4 matters because only lane 0 called the
-// atomic, and a branch the whole warp must agree on has to be warp-uniform.
+// that is not there yet.
+//
+// Step 4 is in the real kernel because there the whole warp is still live and
+// the branch must be warp-uniform. The exercise below exits all but thread 0
+// first, so you will not write it -- and could not, since a __shfl_sync over
+// a mask whose lanes have exited is invalid. Worth knowing which of the five
+// steps you are skipping, and why.
 //
 // Note what is absent: no `volatile`. It stops the compiler caching a value
 // in a register but orders nothing. __threadfence plus atomics is what this

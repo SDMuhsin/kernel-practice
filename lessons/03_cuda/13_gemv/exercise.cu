@@ -180,8 +180,10 @@ __global__ void gemv_rows(Mat A, const __nv_bfloat16* x, float* out) {
 static bool gemv_dispatch(Mat A, const __nv_bfloat16* x, float* out,
                           int blocks, int R) {
     /* TODO: switch over R in {1,2,4,8} launching gemv_rows<R, PF>, and
-       return false for anything else. PF=2 for R<=4, PF=1 for R=8. */
-    return false;
+       return false for anything else. PF=2 for R<=4, PF=1 for R=8.
+       The placeholder returns true so that "R=3 is rejected" is a real
+       check rather than something a stub satisfies by accident. */
+    return true;
 }
 
 int main() {
@@ -211,8 +213,11 @@ int main() {
     CHECK_EQ("PF=4 is bit-identical to PF=1",
              (long long)report_err("PF4 vs PF1", h4, h2, m.K, 0.0), 0);
 
-    printf("\n  per row: naive %d multiplies, algebra %d + %d group fixups\n",
-           m.N * 3, m.N, m.N / m.G * 3);
+    // Counting the code as written: naive does 3 float ops per weight; part C
+    // still does 2 (the x' multiply plus the FMA) plus 2 per group. It becomes
+    // 1 per weight only once x' is hoisted, which is part E's job.
+    printf("\n  per row: naive %d ops, part C %d + %d per-group\n",
+           m.N * 3, m.N * 2, (m.N / m.G) * 2);
     printf("  uint4 loads per row: %d (one per 32-column granule)\n\n", m.N >> 5);
 
     // ---- E, every supported R ---------------------------------------------

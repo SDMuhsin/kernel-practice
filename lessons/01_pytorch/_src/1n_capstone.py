@@ -17,8 +17,8 @@
 #                     norm -> MLP       -> +residual ] x N -> norm -> lm_head
 # ```
 #
-# Toy dimensions, real structure. Change six constants and it is the real
-# model.
+# Toy dimensions, real structure. Change the eight size constants and it is
+# the real model.
 
 # %%
 CFG = dict(D=8, H=4, HKV=2, DH=2, I=16, V=10, n_layers=2,

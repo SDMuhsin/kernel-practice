@@ -26,8 +26,7 @@ mkdir -p "$KATA_BUILD" 2>/dev/null || true
 [ -n "${PYTHONPATH:-}" ] && { echo "[kata] clearing inherited PYTHONPATH"; unset PYTHONPATH; }
 [ -n "${PIP_CONFIG_FILE:-}" ] && export PIP_CONFIG_FILE=/dev/null
 
-# Lesson 1 is CPU-only Python. Lesson 2 needs a C++ compiler, and its CUDA
-# notebooks need nvcc plus a GPU.
+# Lesson 1 is CPU-only Python. Lesson 2 needs a C++ compiler; lesson 3 needs nvcc and a GPU.
 export KATA_CXX="${KATA_CXX:-${CXX:-g++}}"
 export KATA_SM="$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null \
                   | head -1 | tr -d ' .')"
@@ -57,4 +56,4 @@ fi
 echo "[kata] root   $KATA_ROOT"
 if [ -f "$VENV/bin/activate" ]; then echo "[kata] python $(command -v python)"
 else echo "[kata] python <no venv at \$KATA_ROOT/env -- run: bash scripts/setup.sh>"; fi
-echo "[kata] nvcc   ${KATA_NVCC:-<none: lesson 2 CUDA notebooks need one>}"
+echo "[kata] nvcc   ${KATA_NVCC:-<none: lesson 3 needs one>}"

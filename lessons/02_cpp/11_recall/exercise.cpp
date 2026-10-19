@@ -21,12 +21,25 @@
 #include <cstring>
 #include <cstddef>
 
-/* TODO: row_offset */
-/* TODO: unpack_mask */
-/* TODO: field2 */
-/* TODO: bf16_rne */
-/* TODO: ceil_div */
-/* TODO: template<int R> acc_rows */
+// Replace each stub body with the real thing. They compile as they stand, so
+// you get FAIL lines telling you which are still wrong, not a wall of
+// "not declared in this scope".
+inline size_t row_offset(int row, int N) { /* TODO */ (void)row; (void)N; return 0; }
+
+void unpack_mask(const uint8_t* m, int N, uint8_t* keep) {
+    /* TODO */ (void)m; for (int j = 0; j < N; ++j) keep[j] = 0;
+}
+
+uint32_t field2(uint32_t w, int e) { /* TODO */ (void)w; (void)e; return 0; }
+
+uint16_t bf16_rne(float f) { /* TODO */ (void)f; return 0; }
+
+constexpr int ceil_div(int a, int b) { /* TODO */ return a && b ? 1 : 1; }
+
+template <int R>
+void acc_rows(const float* W, const float* x, float* out, int K, int N, int r0) {
+    /* TODO */ (void)W; (void)x; (void)out; (void)K; (void)N; (void)r0;
+}
 
 int main() {
     CHECK_EQ("row_offset(7, 4096)", (long long)row_offset(7, 4096), 10752);

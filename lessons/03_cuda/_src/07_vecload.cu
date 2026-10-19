@@ -74,6 +74,11 @@ __global__ void dot_bf16(const __nv_bfloat16* row, const float* x,
 // A `break` in the ISSUE loop creates a control dependency between the loads:
 // load s+1 cannot issue until the test on load s resolves, and the parallel
 // latencies collapse into a chain. A ternary keeps every load unconditional.
+//
+// Be precise about what the measurement below compares: the slow arm both
+// puts the break in the issue loop AND fuses issue with consume, so it
+// varies two things. What it isolates is the property that matters, which is
+// whether every load is issued before any is used.
 // ---------------------------------------------------------------------------
 template <int PF, bool BREAK_IN_ISSUE, int TPB>
 __global__ void walk(const uint4* p, float* out, int NT, int chunks) {
@@ -156,8 +161,13 @@ int main() {
     SWEEP(64,  r8)
     SWEEP(128, r8)
     SWEEP(256, r8)
-    printf("\n  1 warp/SM %.2fx   8 warps/SM %.2fx\n\n", r1, r8);
-    CHECK_TRUE("the penalty shrinks as occupancy rises", r1 > r8);
+    printf("\n  1 warp/SM %.2fx   8 warps/SM %.2fx\n", r1, r8);
+    printf("  %s\n\n", r1 > r8
+           ? "The penalty shrinks as occupancy rises, as expected."
+           : "On this GPU the trend is flat or inverted. That happens when the\n"
+             "  run is bandwidth-bound rather than latency-bound; the mechanism\n"
+             "  below still holds, it is just not what limits you here.");
+    // Not asserted: this is a timing ratio on your hardware, not your code.
 
     // Identical arithmetic, identical bytes, identical grid. The only
     // difference is whether the break sits in the issue loop or the consume

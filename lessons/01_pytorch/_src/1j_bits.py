@@ -3,8 +3,10 @@
 #
 # About 30 minutes.
 #
-# BioMistral fits in 2.9 GB because its weights are 4-bit and half of them are
-# thrown away. This notebook reads that format.
+# BioMistral fits in 2.9 GB, about 3.2 bits per weight. The codes are 4-bit
+# and half the weights are pruned, but the survivor bitmap costs a bit per
+# column and the group scales are stored densely, so the real packed cost is
+# above the 2 bits those two numbers suggest. This notebook reads the format.
 
 # %%
 # @include _setup.py

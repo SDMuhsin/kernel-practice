@@ -41,7 +41,10 @@ int main() {
     // @sol
     const uint16_t* as_half = reinterpret_cast<const uint16_t*>(raw);
     // @ex
-    const uint16_t* as_half = /* TODO: relabel raw as uint16_t */ 0;
+    // TODO: relabel raw as uint16_t. Reading through a null pointer would
+    // crash the whole program, so the placeholder points at `raw` with the
+    // wrong type; fix the type.
+    const uint16_t* as_half = reinterpret_cast<const uint16_t*>(&raw[0]) /* TODO */;
     // @end
     CHECK_NEAR("first scale",  h2f(as_half[0]), 1.0);
     CHECK_NEAR("second scale", h2f(as_half[1]), 2.0);
@@ -67,9 +70,9 @@ int main() {
     size_t off_scale = off_code + (size_t)K * N / 4;
     const uint16_t* scales = reinterpret_cast<const uint16_t*>(blob + off_scale);
     // @ex
-    size_t off_mask  = /* TODO */ 0;
-    size_t off_code  = /* TODO */ 0;
-    size_t off_scale = /* TODO */ 0;
+    size_t off_mask  = /* TODO */ 1;
+    size_t off_code  = /* TODO */ 1;
+    size_t off_scale = /* TODO */ 1;
     const uint16_t* scales = /* TODO */ 0;
     // @end
     CHECK_EQ("mask at",   (long long)off_mask,  0);

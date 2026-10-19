@@ -25,7 +25,11 @@ struct Good { uint32_t b; uint8_t a; uint8_t c; };
 // One quantized matrix, the way the real parameter struct bundles it.
 // Order the fields so there is NO padding: pointers first.
 struct MatDesc {
-    /* TODO: four pointers, then three int64_t, in an order with no padding */
+    // TODO: four pointers (const uint8_t*, const uint16_t*, const uint8_t*,
+    // const uint16_t*) then three int64_t, in an order with no padding.
+    // The int64_t fields are here so the rest of this file still compiles;
+    // add the pointers.
+    int64_t K, N, G;
 };
 
 struct RowPlanes {

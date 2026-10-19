@@ -33,18 +33,31 @@ int main() {
     CHECK_EQ("row stride",  (long long)row_stride, 1536);
 
     // ---- the overflow you will actually hit --------------------------------
-    // A quarter of BioMistral's weights, at 2 bytes each (bf16).
-    // Do it twice: once entirely in int, once correctly.
-    // For the correct one the cast must come BEFORE the multiply.
-    const int    n_params_i = 1810000000;
-    const size_t n_params_z = 1810000000;
-    const int    bytes_each = 2;
-    int    bad  = n_params_i * bytes_each;
-    size_t good = n_params_z * (size_t)bytes_each;
-    printf("\n  int says    %d\n", bad);
-    printf("  size_t says %llu\n\n", (unsigned long long)good);
-    CHECK_EQ("in size_t", (long long)good, 3620000000LL);
-    CHECK_TRUE("the int version is negative", bad < 0);
+    // A quarter of BioMistral's weights, at 4 bytes each (an fp32
+    // checkpoint). Do it twice:
+    // once in 32 bits, once in 64. The cast must come BEFORE the multiply.
+    //
+    // Note what the int version actually is: signed overflow is UNDEFINED
+    // BEHAVIOUR, not "wraps to a negative number". g++ happens to wrap here
+    // and will even tell you so at compile time, but the standard permits a
+    // compiler to assume it cannot happen and optimise accordingly. So the
+    // unsigned counterpart is used below to show the wrap, because that one
+    // is defined.
+    // Both are int. You only get a 64-bit product if you SAY so, and the
+    // cast has to come before the multiply: casting afterwards is too late,
+    // the overflow already happened.
+    const unsigned n_params = 1810000000u;
+    const unsigned bytes_each = 4u;
+    unsigned bad  = n_params * bytes_each;          // defined: wraps mod 2^32
+    size_t   good = (size_t)n_params * bytes_each;  // 64-bit, correct
+    printf("\n  32-bit says %u\n", bad);
+    printf("  64-bit says %llu\n\n", (unsigned long long)good);
+    CHECK_EQ("in 64 bits", (long long)good, 7240000000LL);
+    CHECK_TRUE("the 32-bit product wrapped", (size_t)bad != good);
+    // Casting the RESULT instead of an operand does not help: the multiply
+    // already happened in 32 bits.
+    CHECK_TRUE("casting too late does not rescue it",
+               (size_t)(n_params * bytes_each) != good);
 
     return REPORT();
 }

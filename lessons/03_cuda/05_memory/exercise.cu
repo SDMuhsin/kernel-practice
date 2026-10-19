@@ -95,7 +95,11 @@ int main() {
     //
     //   MEASURED NEGATIVE alternative: lane-owns-contiguous-dims (fully
     //   coalesced loads, 5 shuffles per key per head) costs 43.4 us/layer
-    //   vs 30.4 here
+    //   vs 30.4 here -- the extra shuffles and the live q registers outweigh
+    //   the better coalescing
+    //
+    // (Per layer on the 27B model, not BioMistral. Take the direction, not
+    // the magnitude.)
     //
     // Coalescing is one cost among several. Measure; do not apply the rule
     // blindly. (The other half, p.V, IS the coalesced layout - the kernel

@@ -38,7 +38,7 @@ python -m ipykernel install --prefix="$VIRTUAL_ENV" --name kata \
        --display-name "Python (kata)" >/dev/null
 echo "installed: $(python -c 'import torch; print("torch", torch.__version__)')"
 
-# Lesson 2's CUDA notebooks need an nvcc that can target this GPU. One older
+# Lesson 3 needs an nvcc that can target this GPU. One older
 # than the card is worse than none: it compiles, then fails at load.
 if [ -n "${KATA_SM:-}" ]; then
   if [ -n "${KATA_NVCC:-}" ] && "$KATA_NVCC" --list-gpu-arch 2>/dev/null \

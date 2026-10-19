@@ -20,6 +20,10 @@ INC      := -Iinclude -I$(NVROOT)/include $(if $(KATA_CUDA_INC),-I$(KATA_CUDA_IN
 LIBS     := $(if $(wildcard $(NVROOT)/lib/libcudart_static.a),\
               -L$(NVROOT)/lib -lcudart_static -lrt -lpthread -ldl,-lcudart)
 NVFLAGS  ?= -std=c++17 -O2 -lineinfo $(ARCH) $(INC)
+# An unfilled TODO leaves its variable unused; that warning says nothing
+# about your answer. Solutions are still built without this.
+EXFLAGS  := -Xcompiler -Wno-unused-variable -diag-suppress 177
+Q        := $(if $(V),,@)
 BUILD    ?= $(if $(KATA_BUILD),$(KATA_BUILD),/tmp/kata-build)/cuda
 
 DIRS := $(sort $(wildcard [0-9][0-9]_*))
@@ -33,9 +37,13 @@ help:
 	@$(foreach d,$(DIRS), printf '  make %-4s %s\n' \
 	   "$(firstword $(subst _, ,$d))" "$(d)";)
 	@echo
+	@echo "  make NNs        run the solution instead"
 	@echo "  make all        run every exercise"
 	@echo "  make solutions  run every solution"
 	@echo "  make fixture    generate the capstone data (needed once, for 13+)"
+	@echo
+	@echo "  make clean      remove the build directory"
+	@echo "  V=1 make NN     show the compile command"
 	@echo
 	@echo "Open the .cu file, read the header, fill in the TODOs, then run it."
 
@@ -48,10 +56,10 @@ $(firstword $(subst _, ,$(1)))s: $(BUILD)/$(1)-solution
 	@$$<
 $(BUILD)/$(1)-exercise: $$(wildcard $(1)/*.cu) include/check.cuh include/fixture.cuh
 	@mkdir -p $(BUILD)
-	@$(NVCC) $(NVFLAGS) -I$(1) -o $$@ $(1)/exercise.cu $(LIBS)
+	$(Q)$(NVCC) $(NVFLAGS) $(EXFLAGS) -I$(1) -o $$@ $(1)/exercise.cu $(LIBS)
 $(BUILD)/$(1)-solution: $$(wildcard $(1)/*.cu) include/check.cuh include/fixture.cuh
 	@mkdir -p $(BUILD)
-	@$(NVCC) $(NVFLAGS) -I$(1) -o $$@ $(1)/solution.cu $(LIBS)
+	$(Q)$(NVCC) $(NVFLAGS) -I$(1) -o $$@ $(1)/solution.cu $(LIBS)
 endef
 $(foreach d,$(DIRS),$(eval $(call RULE,$(d))))
 

@@ -58,8 +58,8 @@ print("F.linear(x, Wq)", S(F.linear(x, Wq)),
 #
 # A checkpoint hands you `Wo_bad` in the wrong layout: `(H*DH, D)` where
 # `o_proj` wants `(D, H*DH)`. Produce `(1, D)` from `attn_out` **without
-# transposing the weight** — at real sizes that is a 16 MB copy you cannot
-# afford per token.
+# transposing the weight** — at BioMistral's 4096x4096 that is a 32 MiB copy
+# in bf16, per token.
 
 # %%
 attn_out = torch.randn(1, H * DH)

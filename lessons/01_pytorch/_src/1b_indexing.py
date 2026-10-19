@@ -101,6 +101,14 @@ check("up", up, shape=(I, D))
 check("gate row 0 is gu row 0", gate[0, 0], want=0.0)
 check("up row 0 is gu row 1", up[0, 0], want=float(D))
 check("is_view", is_view, want=True)
+# A literal True would pass that. So here is the same question with the
+# opposite answer: a step slice is a view, but `clone()` is not.
+# @sol
+is_view_2 = gate.clone().data_ptr() == gu.data_ptr()
+# @ex
+is_view_2 = TODO        # does gate.clone() share memory with gu?
+# @end
+check("is_view_2", is_view_2, want=False)
 
 # %% [markdown]
 # Slices are **views**. They share storage, so writing through one changes the

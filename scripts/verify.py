@@ -55,10 +55,30 @@ def run_make(lesson: Path) -> bool:
     return True
 
 
+def check_links() -> bool:
+    """Every notebook or exercise file a README names must exist.
+
+    A lesson README that points at files from an earlier layout is the first
+    thing a learner reads and the last thing a test would catch, so catch it
+    here."""
+    import re
+    pat = re.compile(r"\b(\w+\.ipynb|\d\d_[a-z0-9_]+\.(?:cpp|cu))\b")
+    have = {p.name for p in REPO.glob("lessons/*/**/*") if p.is_file()}
+    ok = True
+    for doc in sorted(REPO.glob("*.md")) + sorted(REPO.glob("lessons/*/README.md")):
+        for name in sorted(set(pat.findall(doc.read_text()))):
+            name = name if isinstance(name, str) else name[0]
+            if name not in have:
+                print(f"  DEAD LINK {doc.relative_to(REPO)} -> {name}")
+                ok = False
+    print("pass README links" if ok else "FAIL README links")
+    return ok
+
+
 def main(argv: list[str]) -> int:
     want = [a for a in argv if not Path(a).exists()]
     paths = [Path(a).resolve() for a in argv if Path(a).exists()]
-    ok = True
+    ok = check_links() if not paths else True
     if paths:
         for p in paths:
             ok &= run_notebook(p)

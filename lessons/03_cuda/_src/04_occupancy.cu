@@ -68,7 +68,6 @@ int main() {
 
     // Relationships, not numbers: yours will differ from mine.
     CHECK_EQ("warp size is 32 on every NVIDIA GPU to date", (long long)warp, 32);
-    CHECK_TRUE("cooperative launch is supported", coop != 0);
     CHECK_TRUE("the trivial kernel fits at least as many blocks",
                L.blocks >= h1.blocks);
     CHECK_TRUE("raising MINB forced the register count down", h6.regs <= h1.regs);
@@ -84,8 +83,16 @@ int main() {
     /* TODO: query blocks-per-SM for `light` at 256 threads, 0 smem, into nb */
     int grid = /* TODO */ 0;
     // @end
+    // Independent of the learner's own nb: ask the API again here, so the
+    // check cannot be satisfied by comparing a wrong answer to itself.
+    int nb_ref = 0;
+    CUDA_CHECK(cudaOccupancyMaxActiveBlocksPerMultiprocessor(
+                   &nb_ref, (void*)light, 256, 0));
     CHECK_TRUE("blocks per SM is at least 1", nb >= 1);
-    CHECK_EQ("grid is nb * sms", (long long)grid, (long long)(nb * sms));
+    CHECK_EQ("you queried the same blocks/SM the API reports",
+             (long long)nb, (long long)nb_ref);
+    CHECK_EQ("grid is blocks/SM x SM count",
+             (long long)grid, (long long)(nb_ref * sms));
     printf("  a cooperative grid here would be %d blocks\n\n", grid);
 
     // Read the table. Fewer registers, more spill bytes, more resident

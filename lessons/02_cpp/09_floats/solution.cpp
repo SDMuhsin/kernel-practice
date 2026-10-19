@@ -84,10 +84,16 @@ int main() {
     // One step of the bf16 mantissa is a relative 2^-7, about 0.78%, so the
     // worst rounding error is around 0.4%. That compounds through 32 layers.
     //
-    // Two caveats on the formula, for honesty. fp32 -> bf16 CAN overflow: the
-    // largest finite bf16 is 3.3895e38 against fp32's 3.4028e38, so values in
-    // that sliver become infinity. And on NaN the formula disagrees with
-    // PyTorch, which canonicalises every NaN to 0xFFFF. Neither matters for
-    // weights or activations.
+    // Two things to know, neither of which matters for weights or activations.
+    //
+    // The formula matches PyTorch bit for bit on every finite value, both
+    // zeros, every subnormal, both infinities, and the overflow sliver where
+    // fp32 values above bf16's 3.3895e38 round to infinity. That last one is
+    // correct rounding, not a defect.
+    //
+    // On NaN it does not match, and not merely by picking a different NaN:
+    // 0x7F800001 becomes +Inf, 0x7FFFFFFF becomes -0.0, and 0xFFFFFFFF
+    // becomes +0.0 because the add wraps the 32-bit word. The formula can make
+    // a NaN DISAPPEAR. PyTorch canonicalises every NaN to 0xFFFF instead.
     return REPORT();
 }

@@ -100,6 +100,21 @@ def to_cells(text: str) -> list:
     return got
 
 
+def copy_modules(lesson: Path) -> list[Path]:
+    """Plain .py modules in _src/ (no cell markers) are importable helpers.
+    Copy them next to the generated notebooks so `import` just works."""
+    made = []
+    for m in sorted((lesson / "_src").glob("*.py")):
+        if m.name.startswith("_") or "# %%" in m.read_text():
+            continue
+        for sub in ("notebooks", "solutions"):
+            d = lesson / sub
+            d.mkdir(parents=True, exist_ok=True)
+            (d / m.name).write_text(m.read_text())
+            made.append(d / m.name)
+    return made
+
+
 def build_notebook(src: Path) -> list[Path]:
     lesson, text, made = src.parent.parent, include(src.read_text(), src), []
     for want, sub in (("ex", "notebooks"), ("sol", "solutions")):
@@ -139,10 +154,14 @@ def main(argv: list[str]) -> int:
             sorted(p for p in REPO.glob("lessons/*/_src/*")
                    if p.suffix in (".py", ".cpp", ".cu")
                    and "_template" not in p.parts
-                   and not p.name.startswith("_")))
+                   and not p.name.startswith("_")
+                   and (p.suffix != ".py" or "# %%" in p.read_text())))
     if not srcs:
         print("no sources found", file=sys.stderr)
         return 1
+    for lesson in sorted({s.parent.parent for s in srcs}):
+        for m in copy_modules(lesson):
+            print("   ", rel(m))
     for s in srcs:
         made = build_notebook(s) if s.suffix == ".py" else build_code(s)
         print(rel(s))

@@ -66,18 +66,31 @@ print("z.sum(1)    ", S(z.sum(1)), "    the old axis 2 is now axis 1")
 # every reduction shifts the axes after it.
 
 # %% [markdown]
+# ## The one rule you need for the next drill
+#
+# When two tensors meet, PyTorch lines their shapes up **from the right**.
+# Axis by axis: equal is fine, one of them being 1 is fine, a missing axis
+# counts as 1. Anything else is an error.
+#
+# So `(K, N)` and `(N,)` already line up, and `(K, N)` and `(K,)` do not.
+# **1f** is all of this in detail; this much is enough for now.
+
+# %% [markdown]
 # ## Drill 1 (easy)
 #
-# Make `small` line up with `big` on the named axes. Use `None` indexing,
-# `unsqueeze` or `squeeze` only. No `expand`, no `repeat`, no `reshape`.
+# Make `small` line up with `big` on the named axes, using `None` indexing,
+# `unsqueeze` or `squeeze`.
 #
-# | | `big` | `small` | line up on |
-# |---|---|---|---|
-# | a | `(B, H, T, DH)` | `(T, DH)` | `T, DH` |
-# | b | `(B, H, T, DH)` | `(H,)` | `H` |
-# | c | `(K, N)` | `(K,)` | `K` |
-# | d | `(K, N)` | `(N,)` | `N` |
-# | e | `(T, DH)` | `(1, T, DH)` | one axis too many |
+# | | `big` | `small` | line up on | |
+# |---|---|---|---|---|
+# | a | `(B, H, T, DH)` | `(T, DH)` | `T, DH` | already aligned — say so |
+# | b | `(B, H, T, DH)` | `(H,)` | `H` | needs work |
+# | c | `(K, N)` | `(K,)` | `K` | needs work |
+# | d | `(K, N)` | `(N,)` | `N` | already aligned |
+# | e | `(T, DH)` | `(1, T, DH)` | one axis too many | remove it |
+#
+# Two of them are already right. Recognising that is the drill as much as
+# fixing the others is.
 
 # %%
 big = {"a": torch.randn(2, 4, 3, 8), "b": torch.randn(2, 4, 3, 8),
@@ -95,15 +108,30 @@ ans = {"a": small["a"][None, None],
 ans = {"a": TODO, "b": TODO, "c": TODO, "d": TODO, "e": TODO}
 # @end
 
-check("a lines up on (T,DH)", (big["a"] * ans["a"])[0, 0],
-      want=big["a"][0, 0] * small["a"])
-check("b lines up on H", (big["b"] * ans["b"])[0, 2],
-      want=big["b"][0, 2] * small["b"][2])
-check("c lines up on K", (big["c"] * ans["c"])[3], want=big["c"][3] * small["c"][3])
-check("d lines up on N", (big["d"] * ans["d"])[:, 3],
-      want=big["d"][:, 3] * small["d"][3])
-check("e", big["e"] * ans["e"], shape=(3, 8))
+# Each item is checked on its own, and a shape error is reported against the
+# item that caused it rather than stopping the cell.
+def try_item(key, fn):
+    try:
+        fn()
+    except RuntimeError as err:
+        print(f"FAIL  {key}: {str(err).split('at non-singleton')[0].strip()}")
+        raise AssertionError(key) from None
+
+
+try_item("a lines up on (T,DH)", lambda: check(
+    "a lines up on (T,DH)", (big["a"] * ans["a"])[0, 0],
+    want=big["a"][0, 0] * small["a"]))
+try_item("b lines up on H", lambda: check(
+    "b lines up on H", (big["b"] * ans["b"])[0, 2],
+    want=big["b"][0, 2] * small["b"][2]))
+try_item("c lines up on K", lambda: check(
+    "c lines up on K", (big["c"] * ans["c"])[3], want=big["c"][3] * small["c"][3]))
+try_item("d lines up on N", lambda: check(
+    "d lines up on N", (big["d"] * ans["d"])[:, 3],
+    want=big["d"][:, 3] * small["d"][3]))
+try_item("e", lambda: check("e", big["e"] * ans["e"], shape=(3, 8)))
 check("e dropped the axis", torch.tensor(ans["e"].ndim), want=2)
+check("e did it without reshape", torch.tensor(ans["e"].shape[0]), want=3)
 
 # %% [markdown]
 # ## expand, repeat, repeat_interleave
@@ -120,16 +148,26 @@ print("kv.repeat_interleave(2)", kv.repeat_interleave(2).tolist(), "  a a b b")
 
 # %% [markdown]
 # `expand` works only on a length-1 axis and gives a view with stride 0: the
-# same memory read twice. Free, and read-only.
+# same memory read twice. Free, and **aliased** — every position along that
+# axis is the same element.
 
 # %%
 e = kv[:, None].expand(2, 2)
 
 print("shape", S(e), " stride", e.stride(), " shares memory:", e.data_ptr() == kv.data_ptr())
+
+# A single-element write SUCCEEDS, and hits everything sharing the stride-0
+# axis. That is the hazard, and it is quieter than an error would be.
+e2 = kv.clone()[:, None].expand(2, 2)
+src = e2.clone()
+e2[0, 0] = 99.0
+print("after e2[0, 0] = 99 the whole row reads", e2[0].tolist())
+
+# In-place ops do refuse, because they would write the same address twice.
 try:
-    e[0, 0] = 1.0
+    e.mul_(2.0)
 except RuntimeError as err:
-    print("writing to it ->", str(err).split(".")[0])
+    print("but mul_ raises:", str(err).split(":")[-1].strip()[:52])
 
 # %% [markdown]
 # ## Drill 2 (medium)
@@ -154,12 +192,15 @@ def repeat_kv(x, n_rep):
 
 
 # %% [markdown]
-# Stuck? Two operations get you there and the first one is free. Uncomment the
-# hint only after trying.
-
-# %%
-# HINT: insert a blank axis after the head axis, expand it to n_rep, then
-# HINT: collapse the two head axes together.
+# Two operations get you there and the first one is free.
+#
+# <details>
+# <summary>Hint — open only after you have tried</summary>
+#
+# Insert a blank axis after the head axis, `expand` it to `n_rep`, then
+# collapse the two head axes together.
+#
+# </details>
 
 # %%
 HKV, G, T, DH = 2, 2, 3, 2
@@ -205,7 +246,7 @@ for key, expr in cases.items():
         real = "ok"
     except RuntimeError:
         real = "raise"
-    assert not isinstance(p[key], _Todo), f"{key}: not filled in"
+    assert not is_blank(p[key]), f"{key}: not filled in"
     assert p[key] == real, f"FAIL {key}  {expr}\n  you said {p[key]!r}, it is {real!r}"
     print(f"ok    {key}  {expr}  ->  {real}")
 

@@ -38,7 +38,13 @@ print(f"flat[{off}]        = {t.flatten()[off].item()}")
 
 # %% [markdown]
 # Transposing reorders the strides and touches no data. That is why it is free,
-# and why `view` then refuses: a view needs strides in descending order.
+# and why `view` then refuses.
+#
+# The real condition is that the axes you are merging must be adjacent in
+# memory: `stride[i] == stride[i+1] * size[i+1]` across each merged run, with
+# length-1 axes exempt. "Descending strides" is a decent intuition and not the
+# rule — `zeros(4,8)[:, :4]` has descending strides `(8, 1)` and `view` still
+# refuses, because the rows are no longer adjacent.
 
 # %%
 tt = t.transpose(0, 2)
@@ -71,8 +77,11 @@ for idx in (0, 7, 23):
 # - `rc` — the `(row, col)` that flat index 23 maps to in a 5x7 matrix.
 
 # %%
-g = torch.arange(24).reshape(2, 3, 4)
+# The shape is randomised, so a hardcoded 18 will not do.
+_sh = [(2, 3, 4), (3, 5, 2), (4, 2, 6)][torch.randint(3, (1,)).item()]
+g = torch.arange(_sh[0] * _sh[1] * _sh[2]).reshape(*_sh)
 K_, N_ = 5, 7
+print("this run's shape:", S(g), " stride", g.stride())
 
 # @sol
 off = 1 * g.stride(0) + 1 * g.stride(1) + 2 * g.stride(2)
@@ -82,7 +91,8 @@ off = TODO
 rc = TODO
 # @end
 
-check("off", torch.tensor(off), want=18)
+check("off", torch.tensor(off),
+      want=1 * g.stride(0) + 1 * g.stride(1) + 2 * g.stride(2))
 check("off reads the right element", g.flatten()[off], want=g[1, 1, 2])
 check("rc", torch.tensor(rc), want=torch.tensor([3, 2]))
 

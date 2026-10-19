@@ -12,13 +12,16 @@
 //      kernel writes this precondition down: "the group loop is BLOCK-UNIFORM
 //      so the __syncthreads below are safe."
 //
-//   2. Publish-then-read needs TWO barriers. One before the write, meaning
-//      "everyone has finished reading the old values"; one after, meaning
-//      "the writes are visible". Learners write only the second. It is enough
-//      the first time through and wrong the second.
+//   2. Publish-then-read needs a barrier between the write and the read, so
+//      the writes are visible. Everyone remembers this one.
 //
-//   3. A reusable buffer needs a trailing barrier too, so it is dead before
-//      the next call reuses it.
+//   3. A buffer that gets REUSED needs a barrier after the read too, so it is
+//      dead before the next round overwrites it. People forget this one. It is
+//      enough on the first pass and wrong on the second.
+//
+//      Together that is THREE barriers for a reduce-and-reuse, not four: one
+//      round's trailing barrier is the next round's leading one. The real
+//      kernel's block reduction has exactly three.
 //
 // Fill in each TODO, then:   make 06
 // ===========================================================================
@@ -39,8 +42,9 @@ __device__ __forceinline__ float warp_sum(float v) {
 __device__ __forceinline__ float block_sum(float v, float* s, int nw) {
     const int lane = threadIdx.x & 31, warp = threadIdx.x >> 5;
     v = warp_sum(v);
-    /* TODO: barrier; lane 0 of each warp publishes v into s[warp]; barrier;
-       warp 0 reduces the nw slots into s[nw]; barrier; read it; barrier. */
+    /* TODO: lane 0 of each warp publishes v into s[warp]; barrier; warp 0
+       reduces the nw slots into s[nw]; barrier; read it; barrier.
+       Three barriers, in the places rules 2 and 3 ask for. */
     return 0.0f;
 }
 
@@ -80,14 +84,17 @@ int main() {
     double ss = 0.0;
     for (int i = 0; i < n; ++i) ss += (double)h[i] * h[i];
     const double rr = 1.0 / sqrt((double)R * R * ss / n + 1e-5);
-    double maxerr = 0.0, rms_out = 0.0;
+    // Count bad elements rather than taking a max: a NaN would slip past a
+    // `e > maxerr` comparison, which is false for NaN.
+    int bad = 0; double maxerr = 0.0, rms_out = 0.0;
     for (int i = 0; i < n; ++i) {
-        const double e = fabs(o[i] - h[i] * rr);
+        const double e = fabs((double)o[i] - h[i] * rr);
+        if (!(e < 1e-5)) ++bad;
         if (e > maxerr) maxerr = e;
         rms_out += (double)o[i] * o[i];
     }
-    printf("\n  max error vs host: %.2e\n\n", maxerr);
-    CHECK_TRUE("the block reduction is correct", maxerr < 1e-5);
+    printf("\n  elements wrong: %d of %d, largest gap %.2e\n\n", bad, n, maxerr);
+    CHECK_EQ("the block reduction is correct", (long long)bad, 0);
     CHECK_TRUE("and the output is normalised",
                fabs(sqrt(rms_out / n) * R - 1.0) < 1e-3);
 

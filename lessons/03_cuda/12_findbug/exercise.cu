@@ -114,8 +114,9 @@ int main() {
     // Read the signatures, because that is the skill. B is wrong on 3 of
     // every 4 rows and right on the first of each group: a periodic pattern
     // keyed to R points at the per-row emit, not the arithmetic. C is wrong
-    // on every row by a consistent factor: uniform wrongness points at the
-    // reduction itself.
+    // on every row, and not by a scale factor: each lane holds a different
+    // half-sum. Wrongness everywhere points at the reduction; the
+    // periodicity in B points at the emit.
     //
     // Note these are deterministic. The barrier bugs of exercise 06 are not,
     // and that is why they are not in this cell. A race can print the right

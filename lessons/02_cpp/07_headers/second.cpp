@@ -1,7 +1,8 @@
 // A second translation unit. Compiled on its own, then linked in.
 //
-// `static` at file scope means "private to this file". Without it, this
-// definition and the one in the exercise would collide at link time.
-static float scale_one(float x) { return x * 100.0f; }
+// This file's scale_one has EXTERNAL linkage on purpose. So if the one in
+// exercise.cpp also has external linkage, the linker sees two functions with
+// one name and refuses. Marking yours `static` is what makes them coexist.
+float scale_one(float x) { return x * 100.0f; }
 
 float other_scaled(float x) { return scale_one(x); }

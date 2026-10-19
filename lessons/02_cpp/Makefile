@@ -11,6 +11,10 @@
 
 CXX      ?= g++
 CXXFLAGS ?= -std=c++17 -O1 -g -Wall -Wextra -Iinclude
+# An unfilled TODO leaves its variable unused, so a warning about that
+# says nothing about your answer. Solutions are still built strict.
+EXFLAGS  := -Wno-unused-variable -Wno-unused-but-set-variable
+Q        := $(if $(V),,@)
 BUILD    ?= $(if $(KATA_BUILD),$(KATA_BUILD),/tmp/kata-build)/cpp
 
 DIRS  := $(sort $(wildcard [0-9][0-9]_*))
@@ -24,8 +28,12 @@ help:
 	@$(foreach d,$(DIRS), printf '  make %-4s %s\n' \
 	   "$(firstword $(subst _, ,$d))" "$(d)";)
 	@echo
+	@echo "  make NNs        run the solution instead"
 	@echo "  make all        run every exercise"
 	@echo "  make solutions  run every solution"
+	@echo
+	@echo "  make clean      remove the build directory"
+	@echo "  V=1 make NN     show the compile command"
 	@echo
 	@echo "Open the .cpp file, read the header, fill in the TODOs, then run it."
 
@@ -39,11 +47,11 @@ $(firstword $(subst _, ,$(1)))s: $(BUILD)/$(1)-solution
 	@$$<
 $(BUILD)/$(1)-exercise: $$(wildcard $(1)/*.cpp) $$(wildcard $(1)/*.h) include/check.h
 	@mkdir -p $(BUILD)
-	@$(CXX) $(CXXFLAGS) -I$(1) -o $$@ $(1)/exercise.cpp \
+	$(Q)$(CXX) $(CXXFLAGS) $(EXFLAGS) -I$(1) -o $$@ $(1)/exercise.cpp \
 	   $$(filter-out $(1)/exercise.cpp $(1)/solution.cpp,$$(wildcard $(1)/*.cpp))
 $(BUILD)/$(1)-solution: $$(wildcard $(1)/*.cpp) $$(wildcard $(1)/*.h) include/check.h
 	@mkdir -p $(BUILD)
-	@$(CXX) $(CXXFLAGS) -I$(1) -o $$@ $(1)/solution.cpp \
+	$(Q)$(CXX) $(CXXFLAGS) -I$(1) -o $$@ $(1)/solution.cpp \
 	   $$(filter-out $(1)/exercise.cpp $(1)/solution.cpp,$$(wildcard $(1)/*.cpp))
 endef
 $(foreach d,$(DIRS),$(eval $(call RULE,$(d))))

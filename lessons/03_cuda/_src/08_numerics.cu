@@ -24,6 +24,8 @@
 // ===========================================================================
 #include "check.cuh"
 #include <cuda_bf16.h>
+#include <cstring>
+#include <cstdint>
 #define FULL 0xffffffffu
 #define F(x)  __bfloat162float(x)
 #define BF(x) __float2bfloat16(x)
@@ -155,13 +157,29 @@ int main() {
     CUDA_CHECK(cudaMemcpy(a32,d32,n*4,cudaMemcpyDeviceToHost));
     CUDA_CHECK(cudaMemcpy(amx,dmx,n*4,cudaMemcpyDeviceToHost));
 
-    bool all_bf16able = true, any_diff = false;
+    // A host reference with the SAME rounding points. bf16 round-trips are
+    // exactly reproducible on the host, so this can be checked bit for bit -
+    // which is the only way to verify WHICH roundings you did.
+    auto hrb = [](float v) {
+        uint32_t u; memcpy(&u, &v, 4);
+        uint32_t lsb = (u >> 16) & 1u;
+        uint32_t r = ((u + 0x7FFFu + lsb) >> 16) << 16;
+        float f; memcpy(&f, &r, 4); return f;
+    };
+    int mix_bad = 0, first = -1;
     for (int i = 0; i < n; ++i) {
-        if (__bfloat162float(__float2bfloat16(amx[i])) != amx[i]) all_bf16able = false;
-        if (a32[i] != amx[i]) any_diff = true;
+        const float g0 = hrb(hg[i]), u0 = hrb(hu[i]);
+        const float want = hrb(hrb(g0 / (1.0f + expf(-g0))) * u0);
+        if (fabsf(amx[i] - want) > 1e-6f * (1.0f + fabsf(want))) {
+            ++mix_bad; if (first < 0) first = i;
+        }
     }
-    CHECK_TRUE("every mixed result is bf16-representable", all_bf16able);
-    CHECK_TRUE("fp32 and the kernel's rounding differ somewhere", any_diff);
+    if (mix_bad) printf("\n  %d of %d differ; first at %d: got %.6f\n\n",
+                        mix_bad, n, first, amx[first]);
+    CHECK_EQ("rounded at the same points as the reference", (long long)mix_bad, 0);
+    bool any_diff = false;
+    for (int i = 0; i < n; ++i) if (a32[i] != amx[i]) any_diff = true;
+    CHECK_TRUE("and that is not the same as plain fp32", any_diff);
 
     return REPORT();
 }

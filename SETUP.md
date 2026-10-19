@@ -6,7 +6,7 @@ Three lessons, three sets of requirements. Do only what you need.
 |---|---|
 | 01 PyTorch | Python ≥ 3.9 and CPU torch. **No GPU.** |
 | 02 C++ | a C++17 compiler. **No GPU, no Python.** |
-| 03 CUDA | an NVIDIA GPU, and an `nvcc` new enough for it |
+| 03 CUDA | an NVIDIA GPU, and an `nvcc` new enough for it. Its last two exercises also need lesson 1's Python environment. |
 
 ## The short version
 
@@ -16,6 +16,9 @@ bash scripts/setup.sh      # venv + torch + notebook stack  (~5 min, ~3 GiB)
 source env.sh              # every new shell
 bash scripts/doctor.sh     # tells you what works and what to fix
 ```
+
+**Only want lesson 2?** Skip `setup.sh` entirely. You need `g++` and nothing
+else: `cd lessons/02_cpp && make`.
 
 `doctor.sh` is the thing to run when something will not build. It is written
 to give you the fix, not just the symptom.

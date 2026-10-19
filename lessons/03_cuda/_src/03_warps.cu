@@ -1,9 +1,13 @@
 // ===========================================================================
 // 03. Warps and shuffles
 //
-// A warp is 32 threads sharing one instruction pointer. When they take
-// different branches the hardware runs BOTH sides and masks; the cost is the
-// sum. Divergence costs time, never correctness.
+// A warp is 32 threads issued together. When they take different branches the
+// hardware runs BOTH sides and masks; the cost is the sum. Divergence costs
+// time, never correctness.
+//
+// Since Volta each thread also has its own program counter, so a warp is not
+// guaranteed to reconverge on its own. That is exactly why every warp
+// primitive below takes an explicit participation mask.
 //
 // A shuffle reads a register from another lane. No memory, no barrier, the
 // cheapest communication on the GPU.
@@ -64,15 +68,19 @@ __global__ void probe(float* out) {
     out[lane * 4 + 3] = __shfl_down_sync(FULL, v, 4);     // out of range high up
     // Every lane must call warp_max - that is rule 1. Only the STORE is
     // conditional. Putting the call itself inside the `if` is the bug.
-    const float mx = warp_max((float)((lane * 7) % 32));
-    if (lane == 17) out[128] = mx;   // its own slot, past the 32x4 grid
+    // Stored from EVERY lane, because a butterfly that stops one step early
+    // still gets the right answer in some lanes.
+    out[128 + lane] = warp_max((float)((lane * 7) % 32));
 }
 
 // p is held one key per lane; acc is held one dim per lane. To compute
 // acc[d] += sum_j p[j] * V[j][d] every lane needs every p[j]. A broadcast
 // inside the loop is the transpose between the two layouts. This is the pivot
 // of the real attention kernel.
-__global__ void pv(const float* Vt, const float* pin, float* out) {
+//
+// V is plain row-major, 32 keys by 32 dims: V[j][d] is V[j * 32 + d].
+// p[j] is key j's weight, held by lane j.
+__global__ void pv(const float* V, const float* pin, float* out) {
     const int lane = threadIdx.x & 31;
     const float p = pin[lane];
     float acc = 0.0f;
@@ -80,22 +88,22 @@ __global__ void pv(const float* Vt, const float* pin, float* out) {
     #pragma unroll
     for (int j = 0; j < 32; ++j) {
         const float pj = __shfl_sync(FULL, p, j);
-        acc = fmaf(pj, Vt[j * 32 + lane], acc);
+        acc = fmaf(pj, V[j * 32 + lane], acc);
     }
     // @ex
     for (int j = 0; j < 32; ++j) {
         /* TODO: broadcast key j's weight to every lane */
-        /* TODO: fmaf it with this lane's dim of V[j] into acc */
+        /* TODO: fmaf it with V[j][lane] into acc -- this lane's dim of key j */
     }
     // @end
     out[lane] = acc;
 }
 
 int main() {
-    float* d; CUDA_CHECK(cudaMalloc(&d, (32*4 + 1)*4));
+    float* d; CUDA_CHECK(cudaMalloc(&d, (32*4 + 32)*4));
     probe<<<1, 32>>>(d);
     SYNC();
-    float h[129]; CUDA_CHECK(cudaMemcpy(h, d, (32*4 + 1)*4, cudaMemcpyDeviceToHost));
+    float h[160]; CUDA_CHECK(cudaMemcpy(h, d, (32*4 + 32)*4, cudaMemcpyDeviceToHost));
 
     CHECK_NEAR("butterfly, lane 0",  h[0 * 4 + 0], 528.0);   // 1+2+...+32
     CHECK_NEAR("butterfly, lane 17", h[17 * 4 + 0], 528.0);  // every lane
@@ -115,7 +123,9 @@ int main() {
     // ---- warp_max ----------------------------------------------------------
     // Lanes hold (lane*7) % 32, which is 0..31 scrambled, so the max is 31
     // and every lane must see it.
-    CHECK_NEAR("warp_max, seen from lane 17", h[128], 31.0);
+    int wm_bad = 0;
+    for (int l = 0; l < 32; ++l) if (h[128 + l] != 31.0f) ++wm_bad;
+    CHECK_EQ("warp_max is 31 in all 32 lanes", (long long)wm_bad, 0);
 
     // ---- the shuffle as a transpose ---------------------------------------
     float hV[32*32], hp[32], ref[32];
@@ -136,9 +146,17 @@ int main() {
     pv<<<1, 32>>>(dV, dp, dout);
     SYNC();
     float o[32]; CUDA_CHECK(cudaMemcpy(o, dout, sizeof o, cudaMemcpyDeviceToHost));
-    bool pv_ok = true;
-    for (int dd = 0; dd < 32; ++dd) if (o[dd] != ref[dd]) pv_ok = false;
-    CHECK_TRUE("32x32 contraction, no shared memory, no barrier", pv_ok);
+    int pv_bad = 0, pv_first = -1;
+    for (int dd = 0; dd < 32; ++dd)
+        if (o[dd] != ref[dd]) { ++pv_bad; if (pv_first < 0) pv_first = dd; }
+    if (pv_bad) {
+        printf("\n  %d of 32 dims wrong; first is dim %d: want %.1f, got %.1f\n",
+               pv_bad, pv_first, ref[pv_first], o[pv_first]);
+        printf("  If every dim is wrong, check which index you gave V.\n"
+               "  V[j][lane], not V[lane][j].\n\n");
+    }
+    CHECK_EQ("32x32 contraction, no shared memory, no barrier",
+             (long long)pv_bad, 0);
 
     return REPORT();
 }

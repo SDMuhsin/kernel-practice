@@ -20,8 +20,8 @@
 // cg::reduce; its warp work is raw __shfl_*_sync. If you have read that
 // cooperative groups is a big API: it is, and you need two names from it.
 //
-// One piece of folklore to drop: you do NOT need -rdc=true. Look at the
-// compile line this Makefile prints; there is no such flag.
+// One piece of folklore to drop: you do NOT need -rdc=true. Check with
+// `V=1 make 11`, which prints the compile command; there is no such flag.
 //
 // Fill in each TODO, then:   make 11
 // ===========================================================================
@@ -117,7 +117,11 @@ int main() {
     printf("  launch overhead alone, %4d blocks: %.2f us\n", small, s0 * 1000.0f);
     printf("  per grid.sync(),       %4d blocks: %.3f us\n", small, per_small);
     printf("  per grid.sync(),       %4d blocks: %.3f us\n\n", big, per_big);
-    CHECK_TRUE("a barrier is cheaper than a launch", per_small < s0 * 1000.0f);
+    printf("  %s\n\n", per_small < s0 * 1000.0f
+           ? "A barrier is cheaper than a launch here, as expected."
+           : "A barrier did not come out cheaper on this run. The difference is\n"
+             "  under a microsecond, so a noisy machine can invert it; try again.");
+    // Not asserted: a sub-microsecond timing difference is not your code.
 
     // Compare with the kernel's own figures: 0.71 us per barrier at 94-188
     // blocks, rising 2.2x by 564, against a 1.4-1.6 us launch. If you got
@@ -133,8 +137,14 @@ int main() {
     //
     //   Barriers are not the bottleneck.
     //
-    // So a cheap barrier is necessary but not sufficient: it makes fusion
-    // viable, and is worth about one percent. The bigger wins come from what
+    // Two caveats. That arithmetic is for the 27B model (62 layers, a 25 ms
+    // token). BioMistral has 32 layers and a ~6 ms token, so the same
+    // per-barrier cost lands nearer 2% there. And the source gives two figures
+    // in different places, 0.27 ms and 0.48 ms, so read it as single-digit
+    // percent rather than a precise number.
+    //
+    // Either way: a cheap barrier is necessary but not sufficient. It makes
+    // fusion viable, and is worth single-digit percent. The bigger wins come from what
     // fusion ENABLES - keeping activations in registers across phase
     // boundaries, reading each weight byte once per layer, never
     // round-tripping an intermediate through global memory.

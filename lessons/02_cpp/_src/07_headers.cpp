@@ -11,7 +11,7 @@
 //   "undefined reference to ..."   a LINK error: no file defined it
 //
 // This exercise has three files: exercise.cpp, rowmath.h and second.cpp.
-// Look at the compile line `make 07` prints; all of them are on it.
+// Run `V=1 make 07` to see all of them on one compile line.
 //
 // Fill in each TODO, then:   make 07
 // ===========================================================================

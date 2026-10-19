@@ -88,7 +88,10 @@ int main() {
     // load-bearing. In a kernel that guard is the difference between a right
     // answer and writing past the end of an output buffer.
     const int K = 7, N = 5;
-    float W[K * N], x[N], out[K], ref[K];
+    // out has a sentinel tail: a missing (r0 + i < K) guard writes into it,
+    // which is how you catch an overrun that would otherwise be silent.
+    float W[K * N], x[N], out[K + 8], ref[K];
+    for (int i = 0; i < K + 8; ++i) out[i] = -999.0f;
     for (int i = 0; i < K * N; ++i) W[i] = (float)((i * 3) % 7) - 3.0f;
     for (int i = 0; i < N; ++i)     x[i] = (float)(i + 1);
     for (int r = 0; r < K; ++r) {
@@ -98,13 +101,17 @@ int main() {
 
     int Rs[4] = {1, 2, 4, 8};
     for (int t = 0; t < 4; ++t) {
-        for (int i = 0; i < K; ++i) out[i] = -999.0f;
+        for (int i = 0; i < K + 8; ++i) out[i] = -999.0f;
         bool dispatched = gemv_dispatch(W, x, out, K, N, Rs[t]);
         bool ok = dispatched;
         for (int r = 0; r < K; ++r) if (out[r] != ref[r]) ok = false;
-        char label[32];
-        snprintf(label, sizeof label, "R=%d", Rs[t]);
+        bool clean = true;
+        for (int r = K; r < K + 8; ++r) if (out[r] != -999.0f) clean = false;
+        char label[40];
+        snprintf(label, sizeof label, "R=%d correct", Rs[t]);
         CHECK_TRUE(label, ok);
+        snprintf(label, sizeof label, "R=%d wrote nothing past row %d", Rs[t], K - 1);
+        CHECK_TRUE(label, clean);
     }
     CHECK_TRUE("R=3 is rejected", !gemv_dispatch(W, x, out, K, N, 3));
 

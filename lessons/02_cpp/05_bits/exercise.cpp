@@ -5,6 +5,7 @@
 //   x & m               keep only these bits
 //   x & 0xF             the low 4 bits, one nibble
 //   (x >> 4) & 0xF      the high nibble
+//   (1u << c) - 1       a mask of the c LOWEST bits. 1u, not 1: hazard 2.
 //   __builtin_popcount  how many bits are set  (__popc in CUDA)
 //
 // Three hazards, each of which gives a wrong number and no warning. They are
@@ -20,8 +21,13 @@
 //
 // No running counter across the row. Use the format's guarantee: exactly 16
 // of every aligned 32 columns survive, so block t's codes start at byte 8t.
-// Within a block, count survivors with a popcount of the masked-off low bits.
-// That is what the real decoder does, and why it needs no offset table.
+// Within a block, the survivors before column c are the live mask bits at
+// positions below c: popcount of m32 masked down to its c lowest bits.
+//
+// That is the idea, and it is why no per-group byte-offset table is needed.
+// The shipped decoder goes one step further and folds the popcount into a
+// 512-entry byte-permute selector table -- same arithmetic, one lookup
+// instead of 32 popcounts.
 void unpack(const uint8_t* mask, const uint8_t* codes, int N, uint8_t* out) {
     for (int t = 0; t < N / 32; ++t) {
         uint32_t m32 = 0;
@@ -88,10 +94,16 @@ int main() {
     uint8_t out[N];
     unpack(mask, codes, N, out);
 
-    CHECK_EQ("block 0 col 0",  (long long)out[0],  1);
-    CHECK_EQ("block 0 col 14", (long long)out[14], 15);
-    CHECK_EQ("block 0 col 16 is pruned", (long long)out[16], 0);
-    CHECK_EQ("block 1 col 32", (long long)out[32], 1);
+    // Columns 0 and 14 are survivors 0 and 14 - EVEN, so a low nibble.
+    // Columns 1 and 15 are survivors 1 and 15 - ODD, so a high nibble.
+    // You need both, or half of your ternary is never evaluated.
+    CHECK_EQ("col 0  (even survivor, low nibble)",  (long long)out[0],  1);
+    CHECK_EQ("col 1  (odd survivor, high nibble)",  (long long)out[1],  2);
+    CHECK_EQ("col 14 (even survivor)", (long long)out[14], 15);
+    CHECK_EQ("col 15 (odd survivor)",  (long long)out[15], 0);
+    CHECK_EQ("col 16 is pruned", (long long)out[16], 0);
+    CHECK_EQ("block 1 col 32 (even survivor)", (long long)out[32], 1);
+    CHECK_EQ("block 1 col 33 (odd survivor)",  (long long)out[33], 2);
     CHECK_EQ("block 1 col 36 is pruned", (long long)out[36], 0);
 
     return REPORT();

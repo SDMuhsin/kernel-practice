@@ -81,6 +81,21 @@ print("t.sum()[None] ", S(s[None]), " rank", s[None].ndim)
 # `.item()` gives you something you can put in an f-string without ceremony.
 
 # %% [markdown]
+# ## Two things you will need
+#
+# `amax(dim)` gives the maximum **values**. `max(dim)` gives a `(values,
+# indices)` pair, which is not a tensor and will not pass a shape check.
+#
+# `keepdim=True` leaves the collapsed axis behind with length 1, so the result
+# still lines up against the input. **1g** is about nothing else.
+
+# %%
+t = torch.randn(2, 5)
+print("t.amax(-1)             ", S(t.amax(-1)))
+print("t.amax(-1, keepdim=True)", S(t.amax(-1, keepdim=True)))
+print("t.max(-1)              ", type(t.max(-1)).__name__, "  not a tensor")
+
+# %% [markdown]
 # ## Drill 2 (medium)
 #
 # From `logits` of shape `(T, V)`, produce exactly these ranks:
@@ -115,8 +130,7 @@ assert isinstance(peak, float), f"peak is {type(peak).__name__}, want float"
 print("ok    peak is a python float")
 
 # %% [markdown]
-# `top` has shape `(T, 1)` so that `logits - top` works. That is what the
-# `keepdim` argument is for, and notebook **1g** is about nothing else.
+# `top` has shape `(T, 1)` so that `logits - top` works.
 
 # %% [markdown]
 # ## Next
